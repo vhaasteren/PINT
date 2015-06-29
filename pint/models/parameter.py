@@ -3,6 +3,7 @@
 from ..utils import fortran_float, time_from_mjd_string, time_to_mjd_string,\
                     time_to_longdouble
 import numpy 
+from astropy import log
 
 class Parameter(object):
     """
@@ -104,7 +105,7 @@ class Parameter(object):
         except IndexError:
             return False
         # Test that name matches
-        if (name != self.name) and (name not in self.aliases):
+        if not self.name_matches(name):
             return False
         if len(k) < 2:
             return False
@@ -113,9 +114,13 @@ class Parameter(object):
         if len(k) >= 3:
             if int(k[2]) > 0:
                 self.frozen = False
-        if len(k) == 4:
+        if len(k) >= 4:
             self.uncertainty = fortran_float(k[3])
         return True
+
+    def name_matches(self, name):
+        """Whether or not the parameter name matches"""
+        return (name == self.name) or (name in self.aliases)
 
 class MJDParameter(Parameter):
     """This is a Parameter type that is specific to MJD values."""
@@ -130,3 +135,47 @@ class MJDParameter(Parameter):
                 aliases=aliases,
                 parse_value=parse_value,
                 print_value=print_value)
+
+class DMXParameter(Parameter):
+    """This is a Parameter type that is specific to DMX values, since there is
+    an unknown number of those in the parfile."""
+    def __init__(self, name=None, value=None, units=None, description=None, 
+            uncertainty=None, frozen=True, continuous=True, aliases=None,
+            parse_value=fortran_float, print_value=str,
+            add_par_callback=None, prefix=None):
+        super(DMXParameter, self).__init__(name=name, value=value,
+                units=units, description=description,
+                uncertainty=uncertainty, frozen=frozen, 
+                continuous=continuous,
+                aliases=aliases,
+                parse_value=parse_value,
+                print_value=print_value)
+        self.add_par_callback = add_par_callback
+        self.prefix = prefix # if prefix is not None else "DMX_"
+
+    def from_parfile_line(self, line):
+        """
+        Standard procedure: Parse a parfile line into the current state of the
+        parameter.  Returns True if line was successfully parsed, False
+        otherwise. If returning true, also add a new parameter.
+        """
+        if super(DMXParameter, self).from_parfile_line(line):
+            if self.add_par_callback is not None:
+                self.add_par_callback(self.name)
+            else:
+                log.warn("No callback to add parameters after {0}\n".format(
+                        self.name))
+            return True
+        return False
+
+    def name_matches(self, name):
+        """Whether or not the parameter name matches"""
+        if name[:len(self.prefix)] == self.prefix:
+            # Name matches, now for the index
+            # TODO: place self_ind in property?
+            self_ind = int(self.name[len(self.prefix):])
+            ind = int(name[len(self.prefix):])
+
+            return self_ind == ind
+
+        return False
