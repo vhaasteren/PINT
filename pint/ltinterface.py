@@ -85,7 +85,6 @@ class pintpar(object):
 
     @err.setter
     def err(self, value):
-        #self._par.uncertainty = value
         if not has_astropy_unit(value) and self.name in err_units_set:
             self._par.uncertainty = \
                     (value * err_units[self.name]).to(err_units_set[self.name])
@@ -102,7 +101,6 @@ class pintpar(object):
 
     @fit.setter
     def fit(self, value):
-        # TODO: When we set it, this value seems decoupled from self._par.frozen
         self._par.frozen = (not value)
 
     @property
