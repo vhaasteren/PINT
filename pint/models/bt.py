@@ -51,8 +51,12 @@ class BT(TimingModel):
             description="Longitude of periastron",
             parse_value=lambda x: np.double(x)))
 
-        self.add_param(MJDParameter(name="T0",
-            parse_value=lambda x: time_from_mjd_string(x, scale='tdb'),
+        #self.add_param(MJDParameter(name="T0",
+        #    parse_value=lambda x: time_from_mjd_string(x, scale='tdb'),
+        #    description="Epoch of periastron passage"))
+        self.add_param(Parameter(name="T0",
+            units="day",
+            parse_value=lambda x: np.longdouble(x),
             description="Epoch of periastron passage"))
 
         self.add_param(Parameter(name="PBDOT",
@@ -130,7 +134,7 @@ class BT(TimingModel):
             key = par if not par in aliases else aliases[par]
 
             # T0 needs to be converted to long double
-            if key in ['T0']:
+            if key in ['T0'] and False:
                 pardict[par] = time_to_longdouble(getattr(self, key).value)
             else:
                 pardict[par] = getattr(self, key).value

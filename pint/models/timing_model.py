@@ -288,6 +288,12 @@ class TimingModel(object):
             if param == 'Offset':
                 M[:,ii] = 1.0
                 units.append(u.s/u.s)
+            elif param in ['PB', 'A1', 'E', 'OM', 'T0', 'PBDOT', 'OMDOT',
+                    'XDOT', 'EDOT', 'GAMMA']:
+                # Very dirty hack to make the wls_fitter work
+                q = getattr(self, dddp)(toas)
+                M[:,ii] = q
+                units.append(u.s)
             elif hasattr(self, dpdp):
                 q = getattr(self, dpdp)(toas) / F0
                 #q = self.d_phase_d_param(toas, param) / F0

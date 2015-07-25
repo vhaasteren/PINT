@@ -133,7 +133,10 @@ class wls_fitter(fitter):
         #       removed
         conv = {'F0': u.Hz, 'F1': u.Hz/u.s, 'RAJ':u.hourangle,
                 'DECJ':u.degree, 'PMRA':u.mas/u.yr, 'PMDEC':u.mas/u.yr,
-                'PX':u.mas, 'DM':u.s/u.s}
+                'PX':u.mas, 'DM':u.s/u.s, 'PB':u.s/u.s, 'A1':u.s/u.s,
+                'E':u.s/u.s, 'OM':u.s/u.s, 'T0':u.s/u.s, 'PBDOT':u.s/u.s,
+                'OMDOT':u.s/u.s, 'XDOT':u.s/u.s, 'EDOT':u.s/u.s,
+                'GAMMA':u.s/u.s}
 
         # TODO: units and fitp have a different ordering. That is confusing
         for ii, pn in enumerate(fitp.keys()):
