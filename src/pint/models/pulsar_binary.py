@@ -146,6 +146,16 @@ class PulsarBinary(DelayComponent):
         )
         self.add_param(
             floatParameter(
+                name="A1DOT2",
+                aliases=[],
+                units=u.lsec / u.s**2,
+                description="Second Derivative of projected semi-major axis, d2[ap*sin(i)]/dt2",
+                unit_scale=False,
+                tcb2tdb_scale_factor=(1 / consts.c),
+            )
+        )
+        self.add_param(
+            floatParameter(
                 name="ECC",
                 units="",
                 aliases=["E"],

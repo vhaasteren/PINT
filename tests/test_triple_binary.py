@@ -177,3 +177,48 @@ def test_outer_wrapper_classes():
     assert inner.category == "pulsar_system"
     assert inner.param_suffix == ""
     assert "PB" in inner.params
+
+
+def test_a1dot2_changes_delay(toas):
+    """A nonzero A1DOT2 (second derivative of the projected semi-major axis)
+    changes the inner-binary delay."""
+    m = mb.get_model(TRIPLE_PAR)
+    d0 = m.delay(toas)
+    m.A1DOT2.quantity = 1e-18 * u.lsec / u.s**2
+    d1 = m.delay(toas)
+    # 0.5 * A1DOT2 * tt0**2 with tt0 up to ~1e8 s gives a delay change of
+    # order milliseconds; just require a clearly nonzero effect.
+    assert np.max(np.abs((d1 - d0).to_value(u.s))) > 1e-9
+
+
+@pytest.mark.parametrize("param", ["A1DOT2", "A1DOT", "T0", "A1_2", "T0_2"])
+def test_delay_derivatives_match_numerical(toas, param):
+    """Analytic delay derivatives (including A1DOT2 and the chain rule through
+    the outer->inner delay coupling) agree with central finite differences."""
+    m = mb.get_model(TRIPLE_PAR)
+    # Nonzero secular terms so the T0 derivative exercises the A1DOT/A1DOT2
+    # contributions to d_a1_d_T0.
+    m.A1DOT.quantity = 3e-13 * u.lsec / u.s
+    m.A1DOT2.quantity = 2e-21 * u.lsec / u.s**2
+
+    steps = {
+        "A1DOT2": 1e-22,
+        "A1DOT": 1e-15,
+        "T0": 1e-6,
+        "A1_2": 1e-4,
+        "T0_2": 1e-4,
+    }
+    ana = m.d_delay_d_param(toas, param)
+    q = getattr(m, param)
+    v0, h = q.value, steps[param]
+    q.value = v0 + h
+    dp = m.delay(toas)
+    q.value = v0 - h
+    dm = m.delay(toas)
+    q.value = v0
+    num = (dp - dm) / (2 * h * q.units)
+    a = ana.to_value(num.unit)
+    n = num.value
+    scale = np.max(np.abs(n))
+    assert scale > 0
+    assert np.max(np.abs(a - n)) / scale < 1e-4
