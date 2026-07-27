@@ -14,15 +14,98 @@ import os
 import astropy.units as u
 import numpy as np
 import pytest
+from pinttestdata import datadir
 
 import pint.models.model_builder as mb
 import pint.simulation as sim
 from pint.models.binary_bt import BinaryBT2
 from pint.models.binary_dd import BinaryDD, BinaryDD2
+from pint.models.binary_ell1 import BinaryELL12
 from pint.residuals import Residuals
-from pinttestdata import datadir
 
 TRIPLE_PAR = os.path.join(datadir, "B1855+09_triple_DD.par")
+TRIPLE_PAR_DD = TRIPLE_PAR
+
+TRIPLE_PAR_BT = """\
+PSRJ           J1737_triple_BT
+RAJ            17:37:47.11235
+DECJ           -08:11:08.887
+F0             239.51996484444
+F1             -4.55E-16
+PEPOCH         54987
+DM             55.311
+BINARY         BT
+PB             79.517379
+ECC            5.38E-5
+A1             9.332791
+T0             54696.879781933
+OM             49.8
+BINARY2        BT
+PB_2           1400.0
+T0_2           54696.0
+A1_2           120.0
+OM_2           110.0
+ECC_2          0.3
+TZRMJD         54987
+TZRFRQ         1400
+TZRSITE        @
+CLK            TT(TAI)
+UNITS          TDB
+EPHEM          DE405
+"""
+
+TRIPLE_PAR_ELL1 = """\
+PSRJ           J0023_triple_ELL1
+ELONG          9.07039380
+ELAT           6.30910853
+F0             327.8470205906107
+F1             -1.22783E-15
+PEPOCH         56567
+DM             14.32810
+BINARY         ELL1
+PB             0.138799
+A1             0.03484142
+TASC           56567.02609362
+EPS1           7.2E-6
+EPS2           -4.0E-6
+BINARY2        ELL1
+PB_2           1400.0
+A1_2           120.0
+TASC_2         56567.0
+EPS1_2         0.01
+EPS2_2         0.02
+TZRMJD         56567
+TZRFRQ         1400
+TZRSITE        @
+CLK            TT(TAI)
+UNITS          TDB
+EPHEM          DE436
+"""
+
+FAMILY = {
+    "DD": {
+        "par": TRIPLE_PAR_DD,
+        "params": ["A1DOT2", "A1DOT", "T0", "A1_2", "T0_2"],
+    },
+    "BT": {
+        "par": TRIPLE_PAR_BT,
+        "params": ["A1DOT2", "A1DOT", "T0", "A1_2", "T0_2"],
+    },
+    "ELL1": {
+        "par": TRIPLE_PAR_ELL1,
+        "params": ["A1DOT2", "A1DOT", "TASC", "A1_2", "TASC_2"],
+    },
+}
+
+STEPS = {
+    "A1DOT2": 1e-22,
+    "A1DOT": 1e-15,
+    "T0": 1e-6,
+    "TASC": 1e-6,
+    "A1_2": 1e-4,
+    "T0_2": 1e-4,
+    "TASC_2": 1e-4,
+}
 
 
 def _inner_only_par():
@@ -35,6 +118,24 @@ def _inner_only_par():
                 continue
             lines.append(line)
     return "".join(lines)
+
+
+def _load_family_model(family):
+    par = FAMILY[family]["par"]
+    if family == "DD":
+        return mb.get_model(par)
+    return mb.get_model(io.StringIO(par))
+
+
+def _family_toas(model):
+    return sim.make_fake_toas_uniform(
+        model.PEPOCH.value - 200,
+        model.PEPOCH.value + 800,
+        50,
+        model,
+        freq=1400 * u.MHz,
+        add_noise=False,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -164,13 +265,17 @@ def test_outer_param_derivative(triple_model, toas):
 
 def test_outer_wrapper_classes():
     """The outer wrappers are configured for the BINARY2 tag and _2 suffix."""
-    for cls in (BinaryDD2, BinaryBT2):
+    for cls in (BinaryDD2, BinaryBT2, BinaryELL12):
         outer = cls()
         assert outer.category == "pulsar_system_outer"
         assert outer.param_suffix == "_2"
         assert outer.binary_param_tag == "BINARY2"
         assert "PB_2" in outer.params
         assert "PB" not in outer.params
+
+    ell = BinaryELL12()
+    assert "TASC_2" in ell.params
+    assert "TASC" not in ell.params
 
     # The inner DD model is unchanged.
     inner = BinaryDD()
@@ -191,26 +296,21 @@ def test_a1dot2_changes_delay(toas):
     assert np.max(np.abs((d1 - d0).to_value(u.s))) > 1e-9
 
 
-@pytest.mark.parametrize("param", ["A1DOT2", "A1DOT", "T0", "A1_2", "T0_2"])
-def test_delay_derivatives_match_numerical(toas, param):
+@pytest.mark.parametrize(
+    "family,param",
+    [(fam, p) for fam, cfg in FAMILY.items() for p in cfg["params"]],
+)
+def test_delay_derivatives_match_numerical(family, param):
     """Analytic delay derivatives (including A1DOT2 and the chain rule through
     the outer->inner delay coupling) agree with central finite differences."""
-    m = mb.get_model(TRIPLE_PAR)
-    # Nonzero secular terms so the T0 derivative exercises the A1DOT/A1DOT2
-    # contributions to d_a1_d_T0.
+    m = _load_family_model(family)
+    toas = _family_toas(m)
     m.A1DOT.quantity = 3e-13 * u.lsec / u.s
     m.A1DOT2.quantity = 2e-21 * u.lsec / u.s**2
 
-    steps = {
-        "A1DOT2": 1e-22,
-        "A1DOT": 1e-15,
-        "T0": 1e-6,
-        "A1_2": 1e-4,
-        "T0_2": 1e-4,
-    }
     ana = m.d_delay_d_param(toas, param)
     q = getattr(m, param)
-    v0, h = q.value, steps[param]
+    v0, h = q.value, STEPS[param]
     q.value = v0 + h
     dp = m.delay(toas)
     q.value = v0 - h
@@ -222,3 +322,20 @@ def test_delay_derivatives_match_numerical(toas, param):
     scale = np.max(np.abs(n))
     assert scale > 0
     assert np.max(np.abs(a - n)) / scale < 1e-4
+
+
+@pytest.mark.parametrize("family", ["BT", "ELL1"])
+def test_outer_orbit_affects_delay_family(family):
+    par = FAMILY[family]["par"]
+    m = mb.get_model(io.StringIO(par))
+    toas = sim.make_fake_toas_uniform(
+        m.PEPOCH.value - 200,
+        m.PEPOCH.value + 800,
+        40,
+        m,
+        freq=1400 * u.MHz,
+    )
+    d0 = m.delay(toas)
+    m.A1_2.quantity = 0 * u.lsec
+    d1 = m.delay(toas)
+    assert np.max(np.abs((d1 - d0).to_value(u.s))) > 1e-9

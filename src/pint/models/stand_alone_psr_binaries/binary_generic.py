@@ -274,7 +274,10 @@ class PSR_BINARY:
             Derivative of binary delay w.r.t. earlier delays (dimensionless)
         """
 
-        result = self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to("")
+        with u.set_enabled_equivalencies(u.dimensionless_angles()):
+            result = self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to(
+                ""
+            )
         return result
 
     def prtl_der(self, y, x):
