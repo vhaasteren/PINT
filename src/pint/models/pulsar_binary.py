@@ -49,6 +49,7 @@ class PulsarBinary(DelayComponent):
         - PBDOT - time derivative of binary period (s/s)
         - A1 - projected orbital amplitude, $a \sin i$ (ls, non-negative)
         - A1DOT - time derivative of projected orbital amplitude (ls/s)
+        - A1DOT2 - Second time derivative of projected orbital amplitude (ls/s^2)
         - ECC (or E) - eccentricity (no units, 0<=ECC<1)
         - EDOT - time derivative of eccentricity (1/s)
         - OM - longitude of periastron (deg)
@@ -141,6 +142,16 @@ class PulsarBinary(DelayComponent):
                 unit_scale=True,
                 scale_factor=1e-12,
                 scale_threshold=1e-7,
+                tcb2tdb_scale_factor=(1 / consts.c),
+            )
+        )
+        self.add_param(
+            floatParameter(
+                name="A1DOT2",
+                aliases=["X2DOT"],
+                units=u.lsec / u.s**2,
+                description="Second Derivative of projected semi-major axis, d2[ap*sin(i)]/dt2",
+                unit_scale=False,
                 tcb2tdb_scale_factor=(1 / consts.c),
             )
         )

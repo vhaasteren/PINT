@@ -98,6 +98,7 @@ class PSR_BINARY:
             "EDOT": 0.0 / u.second,
             "A1": 10.0 * u.lsec,
             "A1DOT": 0.0 * u.lsec / u.second,
+            "A1DOT2": 0.0 * u.lsec / u.second**2,
             "T0": np.longdouble(54000.0) * u.day,
             "OM": 0.0 * u.deg,
             "OMDOT": 0.0 * u.deg / u.year,
@@ -276,7 +277,10 @@ class PSR_BINARY:
             ``-d(delay)/dt``, which is the response to an earlier delay.
         """
 
-        return self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to("")
+        with u.set_enabled_equivalencies(u.dimensionless_angles()):
+            return self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to(
+                ""
+            )
 
     def prtl_der(self, y, x):
         """Find the partial derivatives in binary model pdy/pdx
@@ -410,18 +414,25 @@ class PSR_BINARY:
         return self.tt0
 
     def a1(self):
-        return self.A1 + self.tt0 * self.A1DOT if hasattr(self, "_tt0") else self.A1
+
+        if hasattr(self, "_tt0"):
+            return self.A1 + self.tt0 * self.A1DOT + 0.5 * self.tt0**2 * self.A1DOT2
+        else:
+            return self.A1
 
     def d_a1_d_A1(self):
         return np.longdouble(np.ones(len(self.tt0))) * u.Unit("")
 
     def d_a1_d_T0(self):
-        result = np.empty(len(self.tt0))
-        result.fill(-self.A1DOT.value)
-        return result * u.Unit(self.A1DOT.unit)
+
+        result = -self.A1DOT - self.A1DOT2 * self.tt0
+        return result.to(self.A1DOT.unit)
 
     def d_a1_d_A1DOT(self):
         return self.tt0
+
+    def d_a1_d_A1DOT2(self):
+        return 0.5 * self.tt0**2
 
     def d_a1_d_par(self, par):
         if par not in self.binary_params:
@@ -822,6 +833,9 @@ class PSR_BINARY:
 
     def d_Pobs_d_A1DOT(self):
         return self.tt0 * self.d_Pobs_d_A1()
+
+    def d_Pobs_d_A1DOT2(self):
+        return 0.5 * self.tt0**2 * self.d_Pobs_d_A1()
 
     ############## Calculation for design matrix  ################
     def Pobs_designmatrix(self, params):
