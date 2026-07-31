@@ -22,9 +22,11 @@ the released changes.
 - Plot whitened DM residuals in pintk.
 - `ssb_to_psb_xyz_ECL` and `ssb_to_psb_xyz_ICRS` are now cached
 - Binary orbital-phase normalization now accepts `PB` (and optionally ordinary `PBDOT`) together with `FBn` while `FB0` is omitted. PINT converts the nominal model to a canonical FBX Taylor series, inserts frozen zero coefficients for sparse indices, and exposes `PB`/`PBDOT` as read-only derived views. Every valued FB coefficient is now guaranteed to contribute to orbital phase or produce a clear error.
+- ELL1H with H3+STIGMA: add opt-in ``ell1h_shapiro="absorbed"`` to select Freire & Wex Eq. (28) (Tempo2 ELL1H/T2 mode 1). Default remains Eq. (29) ``"full"`` (`get_model` / `get_model_and_toas` / `ModelBuilder`).
 ### Fixed
 - Sparse FBX series no longer silently ignore coefficients after the first missing index.
 - Prefer DD over BT when guessing the binary model for Tempo2 `T2` par files (`allow_T2`), matching Tempo2's `allTerms=1` behavior
+- Align ``d_delayS3p_H3_STIGMA_exact_d_STIGMA`` with Eq. (28): ``cos(2*Phi)``.
 - `WidebandTOAFitter` raises a warning if the model has correlated errors (It used to give wrong results before).
 - Fixed bug where "include_bipm" flag was being ignored when loading Fermi TOAs with weights, now defaults to using EPHEM, CLOCK and PLANET_SHAPIRO from the timing model
 - When flags are created based off jumps uses strings instead of None
@@ -41,4 +43,5 @@ the released changes.
 - `make_fake_toas_fromMJDs` now does not assume `PLANET_SHAPIRO` is in the model - it checks.
 - Make VLBI frame rotation work correctly when proper motion is present.
 - Changed some API to pass Mac CI
+- Log-separated frequency computation for red noise components.
 ### Removed
