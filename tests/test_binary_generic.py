@@ -5,7 +5,7 @@ from glob import glob
 import pytest
 
 from pint.models.model_builder import get_model
-from pint.models.timing_model import MissingParameter
+from pint.exceptions import MissingParameter
 from utils import verify_stand_alone_binary_parameter_updates
 from pinttestdata import datadir
 

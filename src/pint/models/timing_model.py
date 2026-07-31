@@ -60,8 +60,6 @@ import pint
 from pint.derived_quantities import dispersion_slope
 from pint.exceptions import (
     AliasConflict,
-    MissingBinaryError,
-    MissingParameter,
     MissingTOAs,
     PrefixError,
     PropertyAttributeError,
@@ -98,10 +96,6 @@ __all__ = [
     "TimingModel",
     "Component",
     "AllComponents",
-    # Re-exported for compatibility with older imports.
-    "MissingBinaryError",
-    "MissingParameter",
-    "MissingTOAs",
 ]
 # Parameters or lines in par files we don't understand but shouldn't
 # complain about. These are still passed to components so that they
