@@ -588,6 +588,9 @@ components.
 
    - If the ``BINARY`` line is present in the parameter file, its value
      determines which binary model to use; if not, no binary model is used.
+     An optional ``BINARY2`` line selects an outer-orbit component for a
+     hierarchical triple (parameters are suffixed with ``_2``, e.g. ``PB_2``;
+     outer wrappers include ``BinaryDD2``, ``BinaryBT2``, and ``BinaryELL12``).
    - Each model component has one or more "special parameters" or families of
      parameters identified by a common prefix. If a par file contains a special
      parameter, or a known alias of one, then the timing model uses the

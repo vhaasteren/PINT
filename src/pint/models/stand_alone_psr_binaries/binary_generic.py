@@ -278,9 +278,7 @@ class PSR_BINARY:
         """
 
         with u.set_enabled_equivalencies(u.dimensionless_angles()):
-            return self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to(
-                ""
-            )
+            return self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to("")
 
     def prtl_der(self, y, x):
         """Find the partial derivatives in binary model pdy/pdx

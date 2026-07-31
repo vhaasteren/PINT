@@ -38,4 +38,5 @@ the released changes.
 - Make VLBI frame rotation work correctly when proper motion is present.
 - Changed some API to pass Mac CI
 - Log-separated frequency computation for red noise components.
+- Place ``solar_windx`` before the binary in ``DEFAULT_ORDER`` so SolarWindDispersionX delays and derivatives chain-rule through the binary the same way as ``solar_wind``.
 ### Removed
