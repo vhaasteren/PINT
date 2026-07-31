@@ -122,6 +122,7 @@ DEFAULT_ORDER = [
     "troposphere",
     "solar_system_shapiro",
     "solar_wind",
+    "solar_windx",
     "dispersion_constant",
     "dispersion_dmx",
     "dispersion_jump",
