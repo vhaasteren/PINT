@@ -177,3 +177,31 @@ def test_outer_wrapper_classes():
     assert inner.category == "pulsar_system"
     assert inner.param_suffix == ""
     assert "PB" in inner.params
+
+
+def test_derived_params_report_inner_binary(triple_model):
+    """Summary / derived-parameter text should name the inner BINARY component."""
+    text, info = triple_model.get_derived_params(returndict=True)
+    assert info["Binary"] == "BinaryDD"
+    assert "Binary model BinaryDD" in text
+    assert "BinaryDD2" not in text.split("Binary model")[1].splitlines()[0]
+
+
+def test_convert_binary_rejects_triple(triple_model):
+    """convert_binary must not silently operate on a hierarchical triple."""
+    import pint.binaryconvert
+
+    with pytest.raises(ValueError, match="multiple binary components"):
+        pint.binaryconvert.convert_binary(triple_model, "BT")
+
+
+def test_outer_missing_parameter_uses_suffixed_name():
+    """MissingParameter messages for outer orbits should cite T0_2, not T0."""
+    from pint.exceptions import MissingParameter
+
+    outer = BinaryDD2()
+    # Leave T0_2 unset; give A1_2 a value so only T0_2 is reported missing.
+    outer.A1_2.value = 1.0
+    with pytest.raises(MissingParameter, match="T0_2") as exc_info:
+        outer.validate()
+    assert exc_info.value.param == "T0_2"

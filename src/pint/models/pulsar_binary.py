@@ -512,9 +512,12 @@ class PulsarBinary(DelayComponent):
                 try:
                     par_method = getattr(self.binary_instance, method_name)
                 except AttributeError as e:
+                    # Use the (possibly suffixed) parameter name so outer-orbit
+                    # components report e.g. T0_2 rather than the canonical T0.
                     raise MissingParameter(
                         self.binary_model_name,
-                        f"{p} is required for '{self.binary_model_name}'.",
+                        par.name,
+                        f"{par.name} is required for '{self.binary_model_name}'.",
                     ) from e
                 par_method()
 
@@ -658,9 +661,10 @@ class PulsarBinary(DelayComponent):
         return self.binary_instance.d_binarydelay_d_par(param)
 
     def d_binary_delay_d_prev_delay(self, toas, acc_delay):
-        """Return derivative of binary delay w.r.t. previous delays"""
+        """Return the derivative of the binary delay w.r.t. the accumulated
+        delay from preceding components (dimensionless)."""
         self.update_binary_object(toas, acc_delay)
-        return self.binary_instance.d_binarydelay_d_prevdelay
+        return self.binary_instance.d_binarydelay_d_prevdelay()
 
     def print_par(self, format="pint"):
         tag = self.binary_param_tag

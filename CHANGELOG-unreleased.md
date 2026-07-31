@@ -15,6 +15,7 @@ the released changes.
 - Updated GMRT coordinates.
 - Replaced custom ``pint.ls`` with astropy ``u.lsec``
 - Updated code to remove deprecation warnings during CI
+- `d_delay_d_param` now applies the chain rule for delay components that respond to delays accumulated from earlier components (e.g. a binary delay's dependence on its evaluation epoch). Design-matrix entries for binary pulsars change at the ~1e-5 relative level. The parameter-independent ingredients are computed once per design matrix via the new `TimingModel.delay_deriv_chain`; the unused `acc_delay` argument of `d_delay_d_param` was replaced by the optional `chain` argument.
 ### Added
 - Plot whitened DM residuals in pintk.
 - `ssb_to_psb_xyz_ECL` and `ssb_to_psb_xyz_ICRS` are now cached

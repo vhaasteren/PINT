@@ -269,12 +269,14 @@ class PSR_BINARY:
 
         Returns
         -------
-        float
-            Derivative of binary delay w.r.t. earlier delays (dimensionless)
+        astropy.units.Quantity
+            Dimensionless derivative of the binary delay w.r.t. earlier delays.
+            The binary delay depends on time only through ``t - T0`` (or
+            ``t - TASC``), so the epoch-parameter derivative equals
+            ``-d(delay)/dt``, which is the response to an earlier delay.
         """
 
-        result = self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to("")
-        return result
+        return self.d_binarydelay_d_par(self.d_binarydelay_d_prev_delay_par).to("")
 
     def prtl_der(self, y, x):
         """Find the partial derivatives in binary model pdy/pdx

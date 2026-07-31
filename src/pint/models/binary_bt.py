@@ -67,7 +67,8 @@ class BinaryBT(PulsarBinary):
         super().validate()
         for p in ("T0", "A1"):
             if self._bp(p).value is None:
-                raise MissingParameter("BT", p, f"{p} is required for BT")
+                pname = self._bp(p).name
+                raise MissingParameter("BT", pname, f"{pname} is required for BT")
 
         # If any *DOT is set, we need T0
         for p in ("PBDOT", "OMDOT", "EDOT", "A1DOT"):
