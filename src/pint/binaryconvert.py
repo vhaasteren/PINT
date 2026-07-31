@@ -7,7 +7,7 @@ Potential issues:
 """
 
 import copy
-from typing import List, Optional, Tuple, Union
+from typing import Tuple
 
 import numpy as np
 from astropy import units as u

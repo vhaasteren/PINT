@@ -556,7 +556,6 @@ class PSR_BINARY:
             else:
                 E = self.E()
                 return np.zeros(len(self.tt0)) * E.unit / par_obj.unit
-        return func()
 
     def nu(self):
         """True anomaly  (Ae)"""

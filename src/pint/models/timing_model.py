@@ -50,8 +50,7 @@ from warnings import warn
 import astropy.coordinates as coords
 import astropy.time as time
 import numpy as np
-from astropy import constants as c, units as u
-from astropy.table import Table
+from astropy import units as u
 from astropy.utils.decorators import lazyproperty
 from loguru import logger as log
 from scipy.optimize import brentq
@@ -91,7 +90,6 @@ from pint.utils import (
     colorize,
     open_or_use,
     split_prefixed_name,
-    xxxselections,
     get_unit,
 )
 
@@ -100,6 +98,10 @@ __all__ = [
     "TimingModel",
     "Component",
     "AllComponents",
+    # Re-exported for compatibility with older imports.
+    "MissingBinaryError",
+    "MissingParameter",
+    "MissingTOAs",
 ]
 # Parameters or lines in par files we don't understand but shouldn't
 # complain about. These are still passed to components so that they
