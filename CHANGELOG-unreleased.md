@@ -28,6 +28,7 @@ the released changes.
 - Remove spurious ``/ Tsun`` factor from analytic DDH ``∂delay/∂STIGMA`` (design matrix / GLS for free ``STIGMA`` was wrong by ``1/Tsun`` since the Maple rewrite in PINT ≥ 1.0).
 - Prefer DD over BT when guessing the binary model for Tempo2 `T2` par files (`allow_T2`), matching Tempo2's `allTerms=1` behavior
 - Align ``d_delayS3p_H3_STIGMA_exact_d_STIGMA`` with Eq. (28): ``cos(2*Phi)``.
+- FDJUMPDM sign convention: a positive FDJUMPDM now adds a positive DM (and delay) on selected TOAs, matching Tempo2.
 - `WidebandTOAFitter` raises a warning if the model has correlated errors (It used to give wrong results before).
 - Fixed bug where "include_bipm" flag was being ignored when loading Fermi TOAs with weights, now defaults to using EPHEM, CLOCK and PLANET_SHAPIRO from the timing model
 - When flags are created based off jumps uses strings instead of None
