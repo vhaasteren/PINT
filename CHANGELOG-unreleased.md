@@ -20,6 +20,7 @@ the released changes.
 - `ssb_to_psb_xyz_ECL` and `ssb_to_psb_xyz_ICRS` are now cached
 - ELL1H with H3+STIGMA: add opt-in ``ell1h_shapiro="absorbed"`` to select Freire & Wex Eq. (28) (Tempo2 ELL1H/T2 mode 1). Default remains Eq. (29) ``"full"`` (`get_model` / `get_model_and_toas` / `ModelBuilder`).
 ### Fixed
+- Propagate one-way astrometric marginal uncertainties in ``as_ECL`` / ``as_ICRS`` by diagonal covariance rotation instead of a signed "fake proper motion" vector. The old ``as_ECL`` path could assign a negative ELONG/ELAT uncertainty (breaking model construction) after an ecliptic↔ICRS round trip, and both directions returned the wrong marginal σ after a non-trivial frame rotation. Correlations induced by conversion are not retained because timing-model parameters store only marginal uncertainties.
 - Remove spurious ``/ Tsun`` factor from analytic DDH ``∂delay/∂STIGMA`` (design matrix / GLS for free ``STIGMA`` was wrong by ``1/Tsun`` since the Maple rewrite in PINT ≥ 1.0).
 - Align ``d_delayS3p_H3_STIGMA_exact_d_STIGMA`` with Eq. (28): ``cos(2*Phi)``.
 - Prefer DD over BT when guessing the binary model for Tempo2 `T2` par files (`allow_T2`), matching Tempo2's `allTerms=1` behavior
