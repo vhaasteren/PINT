@@ -302,9 +302,18 @@ DMX_0001 0.1
         ),
         allow_tcb="raw",
     )
+    m.add_DMX_ranges([53400], [53500], indices=[3], dmxs=[0.3])
     values = {
         name: m[name].value
-        for name in ("PX", "START", "FINISH", "DMXR1_0001", "DMXR2_0001")
+        for name in (
+            "PX",
+            "START",
+            "FINISH",
+            "DMXR1_0001",
+            "DMXR2_0001",
+            "DMXR1_0003",
+            "DMXR2_0003",
+        )
     }
 
     report = convert_tcb_tdb(m)
@@ -312,6 +321,7 @@ DMX_0001 0.1
     assert {name: m[name].value for name in values} == values
     assert set(values) <= set(report.invariant)
     assert np.isclose(m.DMX_0001.value, 0.1 * TCB_TDB_F)
+    assert np.isclose(m.DMX_0003.value, 0.3 * TCB_TDB_F)
 
 
 def test_report_accepts_only_audited_forward_components():

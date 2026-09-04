@@ -533,6 +533,7 @@ class DispersionDMX(Dispersion):
                     parameter_type="float",
                     frozen=frozen,
                     tcb2tdb_scale_factor=DMconst,
+                    tcb2tdb_scale_exponent=-1,
                 )
             )
             self.add_param(
@@ -544,6 +545,8 @@ class DispersionDMX(Dispersion):
                     time_scale="utc",
                     value=mjd_start,
                     tcb2tdb_scale_factor=u.Quantity(1),
+                    convert_tcb2tdb=False,
+                    tcb2tdb_invariant=True,
                 )
             )
             self.add_param(
@@ -555,6 +558,8 @@ class DispersionDMX(Dispersion):
                     time_scale="utc",
                     value=mjd_end,
                     tcb2tdb_scale_factor=u.Quantity(1),
+                    convert_tcb2tdb=False,
+                    tcb2tdb_invariant=True,
                 )
             )
         self.setup()
