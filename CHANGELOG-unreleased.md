@@ -13,7 +13,9 @@ the released changes.
   keeps radio frequency undilated, converts FD/FDJUMP and order-aware DM
   coefficients, leaves PX and UTC/data-span selectors explicitly invariant,
   and reports unsupported active deterministic terms. Converted epochs and DM
-  values therefore differ from the previous legacy-IFTE conversion.
+  values therefore differ from the previous legacy-IFTE conversion. The
+  compatibility alias `IFTE_K` now denotes the IAU/ERFA rate; the obsolete
+  `IFTE_MJD0` and `IFTE_KM1` module constants have been removed.
 ### Added
 - Time-domain solar wind GP noise components: ridge, squared-exponential, Matérn, and quasi-periodic kernels
 - Documentation page explaining the time-domain solar wind noise model, its interpolation basis, and how it differs from the Fourier-basis noise models

@@ -1321,6 +1321,8 @@ class AngleParameter(Parameter):
         aliases=None,
         convert_tcb2tdb=True,
         tcb2tdb_scale_factor=None,
+        tcb2tdb_scale_exponent=None,
+        tcb2tdb_invariant=False,
         **kwargs,
     ):
         self._str_unit = units
@@ -1355,6 +1357,8 @@ class AngleParameter(Parameter):
         ), f"Please specify the tcb2tdb_scale_factor explicitly for {name}."
         self.convert_tcb2tdb = convert_tcb2tdb
         self.tcb2tdb_scale_factor = tcb2tdb_scale_factor
+        self.tcb2tdb_scale_exponent = tcb2tdb_scale_exponent
+        self.tcb2tdb_invariant = tcb2tdb_invariant
 
     def _get_value(self, quan):
         # return Angle(x * self.unit_identifier[units.lower()][0])
@@ -1620,6 +1624,14 @@ class prefixParameter:
     @units.setter
     def units(self, unt):
         self.param_comp.units = unt
+
+    @property
+    def time_scale(self):
+        return self.param_comp.time_scale
+
+    @time_scale.setter
+    def time_scale(self, val):
+        self.param_comp.time_scale = val
 
     @property
     def quantity(self):
@@ -2149,6 +2161,8 @@ class maskParameter(floatParameter):
                 aliases=self.prefix_aliases,
                 convert_tcb2tdb=self.convert_tcb2tdb,
                 tcb2tdb_scale_factor=self.tcb2tdb_scale_factor,
+                tcb2tdb_scale_exponent=self.tcb2tdb_scale_exponent,
+                tcb2tdb_invariant=self.tcb2tdb_invariant,
             )
             if copy_all
             else maskParameter(
@@ -2159,6 +2173,8 @@ class maskParameter(floatParameter):
                 aliases=self.prefix_aliases,
                 convert_tcb2tdb=self.convert_tcb2tdb,
                 tcb2tdb_scale_factor=self.tcb2tdb_scale_factor,
+                tcb2tdb_scale_exponent=self.tcb2tdb_scale_exponent,
+                tcb2tdb_invariant=self.tcb2tdb_invariant,
             )
         )
 

@@ -3725,8 +3725,7 @@ class Component(metaclass=ModelMeta):
     """
 
     component_types = {}
-    # Opt in only after the component's real delay/phase method has a
-    # discriminating TCB/TDB conversion test.
+    # True when conversion is covered by a discriminating delay/phase test.
     tcb2tdb_certified = False
 
     def __init__(self):

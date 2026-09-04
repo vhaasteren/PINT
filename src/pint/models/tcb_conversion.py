@@ -141,6 +141,47 @@ def _scale_exponent(param) -> int:
     return -param.effective_dimensionality
 
 
+def _parameter_conversion_plan(
+    model: TimingModel,
+) -> tuple[set[str], set[str], set[str]]:
+    """Classify set parameters without changing the model."""
+    convertible: set[str] = set()
+    invariant: set[str] = set()
+    unsupported: set[str] = set()
+
+    for name in model.params:
+        param = model[name]
+        if param.quantity is None:
+            continue
+        if getattr(param, "tcb2tdb_invariant", False):
+            invariant.add(name)
+            continue
+        if not getattr(param, "convert_tcb2tdb", False):
+            continue
+        if isinstance(param, (floatParameter, AngleParameter, maskParameter)) or (
+            isinstance(param, prefixParameter)
+            and isinstance(param.param_comp, (floatParameter, AngleParameter))
+        ):
+            if _scale_exponent(param) == 0:
+                invariant.add(name)
+            else:
+                convertible.add(name)
+        elif isinstance(param, MJDParameter) or (
+            isinstance(param, prefixParameter)
+            and isinstance(param.param_comp, MJDParameter)
+        ):
+            if param.time_scale == "utc":
+                invariant.add(name)
+            elif param.time_scale in {"tcb", "tdb"}:
+                convertible.add(name)
+            else:
+                unsupported.add(name)
+        else:
+            unsupported.add(name)
+
+    return convertible, invariant, unsupported
+
+
 def _active_unsupported_components(
     model: TimingModel, converted: set[str], invariant: set[str]
 ) -> tuple[set[str], set[str]]:
@@ -190,61 +231,40 @@ def convert_tcb_tdb(
 
     target_units = "TCB" if backwards else "TDB"
     source_units = "TDB" if backwards else "TCB"
+    convertible, invariant, unsupported = _parameter_conversion_plan(model)
 
     if model["UNITS"].value == target_units or (
         model["UNITS"].value is None and not backwards
     ):
         log.warning("The input par file is already in the target units. Doing nothing.")
+        graph_unsupported, unaudited_components = _active_unsupported_components(
+            model, convertible, invariant
+        )
+        unsupported.update(graph_unsupported)
         report = TCBTDBConversionReport(
             source_units=target_units,
             target_units=target_units,
             convention="iau2006-undilated-frequency",
             converted=(),
-            invariant=(),
-            unsupported=(),
-            unaudited_components=(),
+            invariant=tuple(sorted(invariant)),
+            unsupported=tuple(sorted(unsupported)),
+            unaudited_components=tuple(sorted(unaudited_components)),
         )
         model.tcb_tdb_conversion_report = report
         return report
 
-    converted: set[str] = set()
-    invariant: set[str] = set()
-    unsupported: set[str] = set()
-
-    for par in model.params:
-        param = model[par]
-        if param.quantity is None:
-            continue
-        if getattr(param, "tcb2tdb_invariant", False):
-            invariant.add(par)
-            continue
-        if hasattr(param, "convert_tcb2tdb") and param.convert_tcb2tdb:
-            if isinstance(param, (floatParameter, AngleParameter, maskParameter)) or (
-                isinstance(param, prefixParameter)
-                and isinstance(param.param_comp, (floatParameter, AngleParameter))
-            ):
-                exponent = _scale_exponent(param)
-                if exponent == 0:
-                    invariant.add(par)
-                else:
-                    scale_parameter(model, par, exponent, backwards)
-                    converted.add(par)
-            elif isinstance(param, MJDParameter) or (
-                isinstance(param, prefixParameter)
-                and isinstance(param.param_comp, MJDParameter)
-            ):
-                if param.time_scale == "utc":
-                    invariant.add(par)
-                elif param.time_scale in {"tcb", "tdb"}:
-                    transform_mjd_parameter(model, par, backwards)
-                    converted.add(par)
-                else:
-                    unsupported.add(par)
-            else:
-                unsupported.add(par)
+    for name in convertible:
+        param = model[name]
+        if isinstance(param, (floatParameter, AngleParameter, maskParameter)) or (
+            isinstance(param, prefixParameter)
+            and isinstance(param.param_comp, (floatParameter, AngleParameter))
+        ):
+            scale_parameter(model, name, _scale_exponent(param), backwards)
+        else:
+            transform_mjd_parameter(model, name, backwards)
 
     graph_unsupported, unaudited_components = _active_unsupported_components(
-        model, converted, invariant
+        model, convertible, invariant
     )
     unsupported.update(graph_unsupported)
 
@@ -256,7 +276,7 @@ def convert_tcb_tdb(
         source_units=source_units,
         target_units=target_units,
         convention="iau2006-undilated-frequency",
-        converted=tuple(sorted(converted)),
+        converted=tuple(sorted(convertible)),
         invariant=tuple(sorted(invariant)),
         unsupported=tuple(sorted(unsupported)),
         unaudited_components=tuple(sorted(unaudited_components)),

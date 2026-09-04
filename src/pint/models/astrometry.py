@@ -75,10 +75,7 @@ class Astrometry(DelayComponent):
                 name="PX",
                 units="mas",
                 value=0.0,
-                description=(
-                    "Parallax (left invariant by TCB/TDB conversion because "
-                    "PINT implements no corresponding spatial-coordinate scaling)"
-                ),
+                description="Parallax",
                 convert_tcb2tdb=False,
                 tcb2tdb_scale_factor=(consts.c / u.au),
                 tcb2tdb_invariant=True,

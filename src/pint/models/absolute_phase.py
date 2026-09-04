@@ -27,7 +27,6 @@ class AbsPhase(PhaseComponent):
 
     register = True
     category = "absolute_phase"
-    tcb2tdb_certified = True
 
     def __init__(self):
         super().__init__()
@@ -48,10 +47,7 @@ class AbsPhase(PhaseComponent):
             floatParameter(
                 name="TZRFRQ",
                 units=u.MHz,
-                description=(
-                    "The undilated frequency of the zero phase TOA "
-                    "(invariant under TCB/TDB conversion)."
-                ),
+                description="Frequency of the zero phase TOA.",
                 convert_tcb2tdb=False,
                 tcb2tdb_scale_factor=u.Quantity(1),
                 tcb2tdb_invariant=True,
@@ -77,7 +73,7 @@ class AbsPhase(PhaseComponent):
             self.TZRSITE.value = "ssb"
         if self.TZRSITE.value == "ssb":
             # A barycentric TZRMJD follows the model's coordinate time scale.
-            self.TZRMJD.time_scale = self._parent.UNITS.value.lower()
+            self.TZRMJD.time_scale = (self._parent.UNITS.value or "TDB").lower()
             log.info("The TZRSITE is set at the solar system barycenter.")
 
         if (self.TZRFRQ.value is None) or (self.TZRFRQ.value == 0.0):

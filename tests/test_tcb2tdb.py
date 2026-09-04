@@ -8,9 +8,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import astropy.units as u
+from astropy.table import Table
 
 from pint import DMconst, dmu
+from pint.config import examplefile
 from pint.models.model_builder import ModelBuilder, get_model
+from pint.models.parameter import AngleParameter
 from pint.models.tcb_conversion import TCB_TDB_F, TCB_TDB_K, convert_tcb_tdb
 from pint.pulsar_mjd import time_from_longdouble
 from pint.scripts import tcb2tdb
@@ -89,6 +92,30 @@ def test_coordinate_epoch_uses_astropy_iau_tdb():
     convert_tcb_tdb(m, backwards=True)
     assert abs((m.PEPOCH.quantity - original).to_value(u.ns)) < 0.01
     assert m.PEPOCH.time_scale == "tcb"
+
+
+def test_prefix_coordinate_epoch_keeps_inner_time_scale_consistent():
+    model = ModelBuilder()(
+        StringIO(
+            """
+PSR TEST
+F0 100
+PEPOCH 55000
+GLEP_1 55100
+GLF0_1 1e-6
+UNITS TDB
+"""
+        )
+    )
+
+    convert_tcb_tdb(model, backwards=True)
+
+    assert model.GLEP_1.time_scale == "tcb"
+    assert model.GLEP_1.param_comp.time_scale == "tcb"
+    assert model.GLEP_1.quantity.scale == "tcb"
+    value = model.GLEP_1.value
+    model.GLEP_1.value = value
+    assert model.GLEP_1.quantity.scale == "tcb"
 
 
 def test_coordinate_epoch_includes_tdb0():
@@ -186,6 +213,39 @@ UNITS TCB
     assert position_tdb.separation(position_tcb).to_value(u.uas) < 1e-3
 
 
+def test_solar_system_shapiro_closes_without_refitting():
+    class FakeToas:
+        def __init__(self, mjds):
+            self.table = Table(
+                {
+                    "tdbld": mjds,
+                    "obs_sun_pos": np.tile([1.0, 0.0, 0.0], (len(mjds), 1)) * u.au,
+                }
+            )
+
+        def __len__(self):
+            return len(self.table)
+
+        def get_obss(self):
+            return np.full(len(self), "gbt")
+
+    model = ModelBuilder()(StringIO(simplepar), allow_tcb="raw")
+    model.PLANET_SHAPIRO.value = False
+    tcb_mjds = np.array([53750.0, 54000.0, 55000.0], dtype=np.longdouble)
+    tdb_mjds = np.array(
+        [time_from_longdouble(t, "tcb").tdb.mjd_long for t in tcb_mjds],
+        dtype=np.longdouble,
+    )
+    component = model.components["SolarSystemShapiro"]
+    delay_tcb = component.solar_system_shapiro_delay(FakeToas(tcb_mjds))
+
+    convert_tcb_tdb(model)
+
+    delay_tdb = component.solar_system_shapiro_delay(FakeToas(tdb_mjds))
+    error = delay_tdb - delay_tcb * TCB_TDB_F
+    assert np.max(np.abs(error.to_value(u.ns))) < 0.01
+
+
 def test_fdjump_coefficients_scale_as_time_at_fixed_frequency():
     m = ModelBuilder()(
         StringIO(simplepar + "\nFD1JUMP -sys backend 0.01\n"),
@@ -196,6 +256,35 @@ def test_fdjump_coefficients_scale_as_time_at_fixed_frequency():
     convert_tcb_tdb(m)
 
     assert np.isclose(m.FD1JUMP1.value / original, TCB_TDB_F)
+
+
+def test_new_mask_parameters_preserve_conversion_metadata():
+    model = ModelBuilder()(
+        StringIO(
+            simplepar
+            + "\nFD1JUMP -sys backend1 0.01\n"
+            + "FD1JUMP -sys backend2 0.02\n"
+        ),
+        allow_tcb="raw",
+    )
+
+    assert model.FD1JUMP2.tcb2tdb_scale_exponent == -1
+    assert not model.FD1JUMP2.tcb2tdb_invariant
+
+
+def test_angle_parameter_stores_conversion_metadata():
+    parameter = AngleParameter(
+        name="TEST",
+        value=1,
+        units="rad",
+        convert_tcb2tdb=False,
+        tcb2tdb_scale_factor=u.Quantity(1),
+        tcb2tdb_scale_exponent=2,
+        tcb2tdb_invariant=True,
+    )
+
+    assert parameter.tcb2tdb_scale_exponent == 2
+    assert parameter.tcb2tdb_invariant
 
 
 def test_utc_selectors_and_parallax_are_explicit_invariants():
@@ -246,6 +335,61 @@ UNITS TCB
     report = convert_tcb_tdb(binary)
     assert not report.accepted
     assert "BinaryBT" in report.unaudited_components
+
+
+def test_noop_conversion_preserves_model_acceptance_status():
+    model = ModelBuilder()(StringIO(simplepar), allow_tcb="raw")
+    first_report = convert_tcb_tdb(model)
+    second_report = convert_tcb_tdb(model)
+
+    assert not first_report.accepted
+    assert not second_report.accepted
+    assert "BinaryBT" in second_report.unaudited_components
+
+
+def test_absolute_phase_is_not_certified_without_closure_test():
+    model = ModelBuilder()(
+        StringIO(
+            """
+PSR TEST
+RAJ 12:00:00
+DECJ 20:00:00
+F0 100
+PEPOCH 55000
+DM 10
+TZRMJD 55000
+TZRSITE ssb
+TZRFRQ 1400
+UNITS TCB
+"""
+        ),
+        allow_tcb="raw",
+    )
+
+    report = convert_tcb_tdb(model)
+
+    assert "AbsPhase" in report.unaudited_components
+
+
+def test_absolute_phase_loads_without_units():
+    model = get_model(examplefile("test-wb-0.par"))
+    assert model.TZRMJD.time_scale == "tdb"
+
+    minimal = get_model(
+        StringIO(
+            """
+PSR TEST
+RAJ 12:00:00
+DECJ 20:00:00
+F0 100
+PEPOCH 55000
+DM 10
+TZRMJD 55001
+"""
+        )
+    )
+    assert minimal.TZRSITE.value == "ssb"
+    assert minimal.TZRMJD.time_scale == "tdb"
 
 
 def test_effective_dimensionality():
