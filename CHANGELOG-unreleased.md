@@ -21,4 +21,7 @@ the released changes.
 - Documentation page explaining the time-domain solar wind noise model, its interpolation basis, and how it differs from the Fourier-basis noise models
 - `TOAs.get_tdb_seconds()`, returning the TDB times of the TOAs in seconds with a selectable dtype
 ### Fixed
+- TCB/TDB parameter scaling uses ``x + x (K^n-1)`` with ``K^n-1`` formed
+  from ``L_B``, so a float64 rounding of ``K`` (a factor near 1) cannot
+  put a ~10 ns error into ``F0`` over 1250 d.
 ### Removed

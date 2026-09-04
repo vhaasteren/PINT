@@ -4,16 +4,21 @@ import os
 from copy import deepcopy
 from io import StringIO
 
+import astropy.units as u
 import numpy as np
 import pytest
-import astropy.units as u
 from astropy.table import Table
 
 from pint import DMconst, dmu
 from pint.config import examplefile
 from pint.models.model_builder import ModelBuilder, get_model
 from pint.models.parameter import AngleParameter
-from pint.models.tcb_conversion import TCB_TDB_F, TCB_TDB_K, convert_tcb_tdb
+from pint.models.tcb_conversion import (
+    TCB_TDB_F,
+    TCB_TDB_K,
+    _k_power_minus_one,
+    convert_tcb_tdb,
+)
 from pint.pulsar_mjd import time_from_longdouble
 from pint.scripts import tcb2tdb
 
@@ -59,8 +64,22 @@ def _delta_seconds(t1, t2):
     return np.longdouble(delta.jd1) * day + np.longdouble(delta.jd2) * day
 
 
-def _spin_phase(f0, f1, dt_s):
-    return f0 * dt_s + np.longdouble("0.5") * f1 * dt_s * dt_s
+def _spin_phase_difference(f0_tcb, f1_tcb, f0_tdb, f1_tdb, dt_tcb, dt_tdb):
+    """``φ_tdb - φ_tcb`` from increments, so ``F0 Δt`` does not cancel.
+
+    ``F0 Δt`` is ~10^9 turns here. Subtracting two such phases spends the
+    mantissa on the large term. Split ``F0_tdb = F0_tcb + dF0`` and
+    ``Δt_tdb = Δt_tcb + dΔt`` instead; the two ~100-turn pieces are the
+    TCB/TDB rate correction and they cancel at the size of that correction.
+    """
+    df0 = f0_tdb - f0_tcb
+    df1 = f1_tdb - f1_tcb
+    ddt = dt_tdb - dt_tcb
+    dphi = f0_tcb * ddt + df0 * dt_tdb
+    dphi += np.longdouble("0.5") * (
+        f1_tcb * ddt * (dt_tdb + dt_tcb) + df1 * dt_tdb * dt_tdb
+    )
+    return dphi
 
 
 @pytest.mark.parametrize("backwards", [True, False])
@@ -179,29 +198,41 @@ def test_fixed_frequency_dm_and_fd_scaling():
     assert np.max(np.abs(dm_error.to_value(u.ns))) < 0.01
 
 
+def test_k_power_minus_one_is_the_small_increment():
+    # K-1 from L_B/(1-L_B), not from a float64 value sitting next to 1.
+    L = np.longdouble(1) - TCB_TDB_F
+    dk = L / TCB_TDB_F
+    assert _k_power_minus_one(0) == 0
+    assert _k_power_minus_one(1) == dk
+    assert _k_power_minus_one(-1) == -L
+    assert _k_power_minus_one(2) == L * (np.longdouble(2) - L) / (TCB_TDB_F * TCB_TDB_F)
+    naive = np.longdouble(np.float64(TCB_TDB_K) - np.float64(1))
+    assert abs(_k_power_minus_one(1) - dk) < abs(naive - dk)
+
+
 def test_spindown_phase_closes_without_refitting():
-    # Evaluate F0/F1 against Astropy two-part JD intervals, not PINT's
-    # tdbld/Quantity/Horner path. That path downcasts to float64 on conda
-    # osx-64 (~10 ns over 1250 d) even when arrays still report float128.
     m = ModelBuilder()(StringIO(simplepar), allow_tcb="raw")
     tcb_times = [
         time_from_longdouble(np.longdouble(t), "tcb")
         for t in (53750.0, 54000.0, 55000.0)
     ]
-    f0 = np.longdouble(m.F0.value)
-    f1 = np.longdouble(m.F1.value)
+    f0_tcb = np.longdouble(m.F0.value)
+    f1_tcb = np.longdouble(m.F1.value)
     pepoch_tcb = time_from_longdouble(m.PEPOCH.value, "tcb")
-    dt_tcb = np.array([_delta_seconds(t, pepoch_tcb) for t in tcb_times])
-    phase_tcb = _spin_phase(f0, f1, dt_tcb)
+    dt_tcb = np.array(
+        [_delta_seconds(t, pepoch_tcb) for t in tcb_times], dtype=np.longdouble
+    )
 
     convert_tcb_tdb(m)
 
-    f0 = np.longdouble(m.F0.value)
-    f1 = np.longdouble(m.F1.value)
+    f0_tdb = np.longdouble(m.F0.value)
+    f1_tdb = np.longdouble(m.F1.value)
     pepoch_tdb = m.PEPOCH.quantity
-    dt_tdb = np.array([_delta_seconds(t.tdb, pepoch_tdb) for t in tcb_times])
-    phase_tdb = _spin_phase(f0, f1, dt_tdb)
-    time_error_ns = np.abs((phase_tdb - phase_tcb) / f0) * 1e9
+    dt_tdb = np.array(
+        [_delta_seconds(t.tdb, pepoch_tdb) for t in tcb_times], dtype=np.longdouble
+    )
+    dphi = _spin_phase_difference(f0_tcb, f1_tcb, f0_tdb, f1_tdb, dt_tcb, dt_tdb)
+    time_error_ns = np.abs(dphi / f0_tdb) * 1e9
     assert np.max(time_error_ns) < _TCB_TDB_ROUNDTRIP_NS
 
 

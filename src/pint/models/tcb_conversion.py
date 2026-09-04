@@ -35,10 +35,40 @@ __all__ = [
 # from ERFA rather than maintaining another decimal copy here.
 TCB_TDB_F = np.longdouble(1) - np.longdouble(erfa.ELB)
 TCB_TDB_K = np.longdouble(1) / TCB_TDB_F
+_TCB_TDB_L = np.longdouble(erfa.ELB)
 
 # Backwards-compatible public alias. This is now the IAU/ERFA rate, not the
 # historical IFTE common-origin epoch map.
 IFTE_K = TCB_TDB_K
+
+
+def _k_power_minus_one(exponent: int) -> np.longdouble:
+    """Return ``K**exponent - 1`` from ``L_B``, not from a factor near 1.
+
+    ``K = 1/(1-L_B)`` differs from 1 by ``~1.55e-8``. Forming ``K**n`` and
+    subtracting 1 (or multiplying ``x`` by ``K`` when ``x`` is O(10–100))
+    parks that correction in the last bits of a number near ``x``. Then a
+    float64 rounding of the factor is a ``~1e-16`` relative error, which is
+    ``~10 ns`` after ``F0`` accumulates for 1250 d.
+
+    The increment is O(``n L_B``) and is well resolved even in float64::
+
+        K**n - 1 = (1 - F**n) / F**n    n > 0
+        K**n - 1 = F**(-n) - 1          n < 0
+
+    with ``1 - F**n`` built from ``L_B`` so nothing near 1 is subtracted.
+    """
+    if exponent == 0:
+        return np.longdouble(0)
+    n = abs(exponent)
+    one_minus_fn = _TCB_TDB_L
+    fn = TCB_TDB_F
+    for _ in range(1, n):
+        one_minus_fn = _TCB_TDB_L + TCB_TDB_F * one_minus_fn
+        fn *= TCB_TDB_F
+    if exponent > 0:
+        return one_minus_fn / fn
+    return -one_minus_fn
 
 
 @dataclass(frozen=True)
@@ -62,7 +92,10 @@ class TCBTDBConversionReport:
 def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> None:
     """Scale a parameter x by a power of the IAU TCB/TDB rate K.
 
-        x_tdb = x_tcb * K**n
+        x_tdb = x_tcb * K**n = x_tcb + x_tcb * (K**n - 1)
+
+    The second form is what is applied: ``K**n - 1`` is O(n L_B) and is
+    obtained from ``L_B`` rather than by subtracting two values near 1.
 
     The power n depends on the "effective dimensionality" of
     the parameter as it appears in the timing model. Some examples
@@ -90,14 +123,17 @@ def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> 
     assert isinstance(n, int), "The power must be an integer."
 
     p = -1 if backwards else 1
-
-    factor = TCB_TDB_K ** (p * n)
+    delta = _k_power_minus_one(p * n)
 
     if (param in model) and model[param].quantity is not None:
         par = model[param]
-        par.value *= factor
+        # x * K**n = x + x*(K**n - 1). The increment is ~1e-8 relative, so
+        # this stays accurate if K itself would round to a number near 1.
+        x = np.longdouble(par.value)
+        par.value = x + x * delta
         if par.uncertainty_value is not None:
-            par.uncertainty_value *= factor
+            ux = np.longdouble(par.uncertainty_value)
+            par.uncertainty_value = ux + ux * delta
 
 
 def transform_mjd_parameter(model: TimingModel, param: str, backwards: bool) -> None:
