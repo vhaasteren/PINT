@@ -3,7 +3,6 @@
 import os
 from copy import deepcopy
 from io import StringIO
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -51,6 +50,17 @@ DILATEFREQ          N
 # few ULPs of a day, ~0.05 ns, which is still well below the 1 ns
 # no-refit bound.
 _TCB_TDB_ROUNDTRIP_NS = 0.1
+
+
+def _delta_seconds(t1, t2):
+    """Difference of two ``Time`` objects in seconds, from two-part JD."""
+    delta = t1 - t2
+    day = np.longdouble(86400)
+    return np.longdouble(delta.jd1) * day + np.longdouble(delta.jd2) * day
+
+
+def _spin_phase(f0, f1, dt_s):
+    return f0 * dt_s + np.longdouble("0.5") * f1 * dt_s * dt_s
 
 
 @pytest.mark.parametrize("backwards", [True, False])
@@ -170,24 +180,29 @@ def test_fixed_frequency_dm_and_fd_scaling():
 
 
 def test_spindown_phase_closes_without_refitting():
+    # Evaluate F0/F1 against Astropy two-part JD intervals, not PINT's
+    # tdbld/Quantity/Horner path. That path downcasts to float64 on conda
+    # osx-64 (~10 ns over 1250 d) even when arrays still report float128.
     m = ModelBuilder()(StringIO(simplepar), allow_tcb="raw")
-    tcb_mjds = np.array([53750.0, 54000.0, 55000.0], dtype=np.longdouble)
-    tdb_mjds = np.array(
-        [time_from_longdouble(t, "tcb").tdb.mjd_long for t in tcb_mjds],
-        dtype=np.longdouble,
-    )
-    zero_delay = np.zeros(len(tcb_mjds)) * u.s
-    phase_tcb = m.components["Spindown"].spindown_phase(
-        SimpleNamespace(table={"tdbld": tcb_mjds}), zero_delay
-    )
+    tcb_times = [
+        time_from_longdouble(np.longdouble(t), "tcb")
+        for t in (53750.0, 54000.0, 55000.0)
+    ]
+    f0 = np.longdouble(m.F0.value)
+    f1 = np.longdouble(m.F1.value)
+    pepoch_tcb = time_from_longdouble(m.PEPOCH.value, "tcb")
+    dt_tcb = np.array([_delta_seconds(t, pepoch_tcb) for t in tcb_times])
+    phase_tcb = _spin_phase(f0, f1, dt_tcb)
 
     convert_tcb_tdb(m)
 
-    phase_tdb = m.components["Spindown"].spindown_phase(
-        SimpleNamespace(table={"tdbld": tdb_mjds}), zero_delay
-    )
-    time_error = (phase_tdb - phase_tcb) / m.F0.quantity
-    assert np.max(np.abs(time_error.to_value(u.ns))) < _TCB_TDB_ROUNDTRIP_NS
+    f0 = np.longdouble(m.F0.value)
+    f1 = np.longdouble(m.F1.value)
+    pepoch_tdb = m.PEPOCH.quantity
+    dt_tdb = np.array([_delta_seconds(t.tdb, pepoch_tdb) for t in tcb_times])
+    phase_tdb = _spin_phase(f0, f1, dt_tdb)
+    time_error_ns = np.abs((phase_tdb - phase_tcb) / f0) * 1e9
+    assert np.max(time_error_ns) < _TCB_TDB_ROUNDTRIP_NS
 
 
 def test_astrometric_position_closes_at_same_physical_epoch():
