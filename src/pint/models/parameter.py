@@ -657,6 +657,10 @@ class floatParameter(Parameter):
     tcb2tdb_scale_factor: astropy.units.Quantity
         The scaling factor to be applied while computing the effective
         dimensionality. The default is 1.
+    tcb2tdb_scale_exponent: int or callable, optional
+        Explicit power of the TCB/TDB rate, overriding effective dimensionality.
+    tcb2tdb_invariant: bool, optional
+        Whether this parameter is explicitly unchanged by conversion.
 
     Example
     -------
@@ -682,6 +686,8 @@ class floatParameter(Parameter):
         scale_threshold=None,
         convert_tcb2tdb=True,
         tcb2tdb_scale_factor=None,
+        tcb2tdb_scale_exponent=None,
+        tcb2tdb_invariant=False,
         **kwargs,
     ):
         self.long_double = long_double
@@ -714,6 +720,8 @@ class floatParameter(Parameter):
         ), f"Please specify the tcb2tdb_scale_factor explicitly for {name}."
         self.convert_tcb2tdb = convert_tcb2tdb
         self.tcb2tdb_scale_factor = tcb2tdb_scale_factor
+        self.tcb2tdb_scale_exponent = tcb2tdb_scale_exponent
+        self.tcb2tdb_invariant = tcb2tdb_invariant
 
     @property
     def long_double(self):
@@ -1094,6 +1102,8 @@ class MJDParameter(Parameter):
         be accepted for this parameter.
     time_scale : str, optional, default 'tdb'
         MJD parameter time scale.
+    tcb2tdb_invariant : bool, optional
+        Whether this MJD is a selector that remains numerically unchanged.
 
     Example
     -------
@@ -1115,6 +1125,7 @@ class MJDParameter(Parameter):
         time_scale="tdb",
         convert_tcb2tdb=True,
         tcb2tdb_scale_factor=None,
+        tcb2tdb_invariant=False,
         **kwargs,
     ):
         self._time_scale = time_scale
@@ -1138,6 +1149,7 @@ class MJDParameter(Parameter):
         ), f"Please specify the tcb2tdb_scale_factor explicitly for {name}."
         self.convert_tcb2tdb = convert_tcb2tdb
         self.tcb2tdb_scale_factor = tcb2tdb_scale_factor
+        self.tcb2tdb_invariant = tcb2tdb_invariant
 
     def str_quantity(self, quan):
         return time_to_mjd_string(quan)
@@ -1284,6 +1296,10 @@ class AngleParameter(Parameter):
     tcb2tdb_scale_factor: astropy.units.Quantity
         The scaling factor to be applied while computing the effective
         dimensionality. The default is 1.
+    tcb2tdb_scale_exponent: int or callable, optional
+        Explicit power of the TCB/TDB rate, overriding effective dimensionality.
+    tcb2tdb_invariant: bool, optional
+        Whether this parameter is explicitly unchanged by conversion.
 
     Example
     -------
@@ -1488,6 +1504,11 @@ class prefixParameter:
         The scaling factor to be applied while computing the effective
         dimensionality. If this is a function, it should take the prefix as
         argument and return the scaling factor. The default is 1.
+    tcb2tdb_scale_exponent: int or callable, optional
+        Explicit power of the TCB/TDB rate. A callable receives the concrete
+        parameter, allowing order-aware prefixed families.
+    tcb2tdb_invariant: bool, optional
+        Whether the parameter is explicitly unchanged by TCB/TDB conversion.
     """
 
     def __init__(
@@ -1510,6 +1531,8 @@ class prefixParameter:
         time_scale="utc",
         convert_tcb2tdb=True,
         tcb2tdb_scale_factor=None,
+        tcb2tdb_scale_exponent=None,
+        tcb2tdb_invariant=False,
         **kwargs,
     ):
         # Split prefixed name, if the name is not in the prefixed format, error
@@ -1580,6 +1603,8 @@ class prefixParameter:
             scale_threshold=scale_threshold,
             convert_tcb2tdb=convert_tcb2tdb,
             tcb2tdb_scale_factor=tcb2tdb_scale_factor_val,
+            tcb2tdb_scale_exponent=tcb2tdb_scale_exponent,
+            tcb2tdb_invariant=tcb2tdb_invariant,
         )
         self.is_prefix = True
         self.time_scale = time_scale
@@ -1688,6 +1713,14 @@ class prefixParameter:
     def tcb2tdb_scale_factor(self):
         return self.param_comp.tcb2tdb_scale_factor
 
+    @property
+    def tcb2tdb_scale_exponent(self):
+        return getattr(self.param_comp, "tcb2tdb_scale_exponent", None)
+
+    @property
+    def tcb2tdb_invariant(self):
+        return getattr(self.param_comp, "tcb2tdb_invariant", False)
+
     def __repr__(self):
         return self.param_comp.__repr__()
 
@@ -1749,6 +1782,8 @@ class prefixParameter:
                 "parameter_type",
                 "convert_tcb2tdb",
                 "tcb2tdb_scale_factor",
+                "tcb2tdb_scale_exponent",
+                "tcb2tdb_invariant",
             ]
             if hasattr(self, key) and (key != "frozen" or inheritfrozen)
         }
@@ -1859,6 +1894,8 @@ class maskParameter(floatParameter):
         aliases=[],
         convert_tcb2tdb=True,
         tcb2tdb_scale_factor=None,
+        tcb2tdb_scale_exponent=None,
+        tcb2tdb_invariant=False,
     ):
         self.is_mask = True
         # {key_name: (keyvalue parse function, keyvalue length)}
@@ -1911,6 +1948,8 @@ class maskParameter(floatParameter):
             long_double=long_double,
             convert_tcb2tdb=convert_tcb2tdb,
             tcb2tdb_scale_factor=tcb2tdb_scale_factor,
+            tcb2tdb_scale_exponent=tcb2tdb_scale_exponent,
+            tcb2tdb_invariant=tcb2tdb_invariant,
         )
 
         # For the first mask parameter, add name to aliases for the reading

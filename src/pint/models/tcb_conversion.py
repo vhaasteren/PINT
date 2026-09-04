@@ -1,5 +1,13 @@
-"""TCB to TDB conversion of a timing model."""
+"""TCB/TDB conversion consistent with PINT's TDB forward model.
 
+Coordinate epochs use Astropy/ERFA's IAU 2006 realization. Radio frequencies
+remain undilated, matching PINT's supported ``DILATEFREQ N`` behavior.
+Unsupported active deterministic terms are reported but do not stop conversion.
+"""
+
+from dataclasses import dataclass
+
+import erfa
 import numpy as np
 from loguru import logger as log
 
@@ -11,24 +19,50 @@ from pint.models.parameter import (
     prefixParameter,
 )
 from pint.models.timing_model import TimingModel
+from pint.pulsar_mjd import time_from_longdouble
 
 __all__ = [
+    "TCB_TDB_F",
+    "TCB_TDB_K",
     "IFTE_K",
+    "TCBTDBConversionReport",
     "scale_parameter",
     "transform_mjd_parameter",
     "convert_tcb_tdb",
 ]
 
-# These constants are taken from Irwin & Fukushima 1999.
-# These are the same as the constants used in tempo2 as of 10 Feb 2023.
-IFTE_MJD0 = np.longdouble("43144.0003725")
-IFTE_KM1 = np.longdouble("1.55051979176e-8")
-IFTE_K = 1 + IFTE_KM1
+# PINT evaluates its forward model in IAU 2006 TDB. Obtain the defining rate
+# from ERFA rather than maintaining another decimal copy here.
+TCB_TDB_F = np.longdouble(1) - np.longdouble(erfa.ELB)
+TCB_TDB_K = np.longdouble(1) / TCB_TDB_F
+
+# Backwards-compatible public alias. This is now the IAU/ERFA rate, not the
+# historical IFTE common-origin epoch map.
+IFTE_K = TCB_TDB_K
+
+
+@dataclass(frozen=True)
+class TCBTDBConversionReport:
+    """Summary of operations performed during TCB/TDB conversion."""
+
+    source_units: str
+    target_units: str
+    convention: str
+    converted: tuple[str, ...]
+    invariant: tuple[str, ...]
+    unsupported: tuple[str, ...]
+    unaudited_components: tuple[str, ...]
+
+    @property
+    def accepted(self) -> bool:
+        """Whether the conversion satisfies the tested no-refit contract."""
+        return not self.unsupported and not self.unaudited_components
 
 
 def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> None:
-    """Scale a parameter x by a power of IFTE_K
-        x_tdb = x_tcb * IFTE_K**n
+    """Scale a parameter x by a power of the IAU TCB/TDB rate K.
+
+        x_tdb = x_tcb * K**n
 
     The power n depends on the "effective dimensionality" of
     the parameter as it appears in the timing model. Some examples
@@ -38,8 +72,8 @@ def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> 
         2. F1 has effective dimensionality of frequency^2 and n = 2
         3. A1 has effective dimensionality of time because it appears as
            A1/c in the timing model. Therefore, its n = -1
-        4. DM has effective dimensionality of frequency because it appears
-           as DM*DMconst in the timing model. Therefore, its n = 1
+        4. Constant DM has an explicit n = -1 override because PINT keeps
+           radio frequency fixed during conversion
         5. PBDOT is dimensionless and has n = 0. i.e., it is not scaled.
 
     Parameter
@@ -49,7 +83,7 @@ def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> 
     param : str
         The parameter name to be converted
     n : int
-        The power of IFTE_K in the scaling factor
+        The power of TCB_TDB_K in the scaling factor
     backwards : bool
         Whether to do TDB to TCB conversion.
     """
@@ -57,7 +91,7 @@ def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> 
 
     p = -1 if backwards else 1
 
-    factor = IFTE_K ** (p * n)
+    factor = TCB_TDB_K ** (p * n)
 
     if (param in model) and model[param].quantity is not None:
         par = model[param]
@@ -67,9 +101,7 @@ def scale_parameter(model: TimingModel, param: str, n: int, backwards: bool) -> 
 
 
 def transform_mjd_parameter(model: TimingModel, param: str, backwards: bool) -> None:
-    """Convert an MJD from TCB to TDB or vice versa.
-        t_tdb = (t_tcb - IFTE_MJD0) / IFTE_K + IFTE_MJD0
-        t_tcb = (t_tdb - IFTE_MJD0) * IFTE_K + IFTE_MJD0
+    """Convert a coordinate epoch between TCB and IAU 2006 TDB.
 
     Parameters
     ----------
@@ -80,9 +112,6 @@ def transform_mjd_parameter(model: TimingModel, param: str, backwards: bool) -> 
     backwards : bool
         Whether to do TDB to TCB conversion.
     """
-    factor = IFTE_K if backwards else 1 / IFTE_K
-    tref = IFTE_MJD0
-
     if (param in model) and model[param].quantity is not None:
         par = model[param]
         assert isinstance(par, MJDParameter) or (
@@ -90,29 +119,60 @@ def transform_mjd_parameter(model: TimingModel, param: str, backwards: bool) -> 
             and isinstance(par.param_comp, MJDParameter)
         )
 
-        par.value = (par.value - tref) * factor + tref
+        source = "tdb" if backwards else "tcb"
+        target = "tcb" if backwards else "tdb"
+        converted = getattr(time_from_longdouble(par.value, source), target)
+
+        # Re-label before assigning the already-converted two-part Time so the
+        # old numeric MJD is not silently reinterpreted in the target scale.
+        par.time_scale = target
+        par.quantity = converted
         if par.uncertainty_value is not None:
-            par.uncertainty_value *= factor
+            par.uncertainty_value *= TCB_TDB_K if backwards else TCB_TDB_F
 
 
-def convert_tcb_tdb(model: TimingModel, backwards: bool = False) -> None:
-    """This function performs a partial conversion of a model
-    specified in TCB to TDB. While this should be sufficient as
-    a starting point, the resulting parameters are only approximate
-    and the model should be re-fit.
+def _scale_exponent(param) -> int:
+    """Return the conversion exponent, honoring component-owned overrides."""
+    override = getattr(param, "tcb2tdb_scale_exponent", None)
+    if callable(override):
+        override = override(param)
+    if override is not None:
+        return int(override)
+    return -param.effective_dimensionality
 
-    This is roughly based on the `transform` plugin of tempo2, but uses
-    a different algorithm and does a more complete conversion.
 
-    The following parameters are NOT converted although they are
-    in fact affected by the TCB to TDB conversion:
-        1. TZRMJD and TZRFRQ
-        2. DMJUMPs (the wideband kind)
-        3. FD parameters and FD jumps
-        4. EQUADs and ECORRs.
-        5. GP Red noise and GP DM noise parameters
-        6. Pair parameters such as Wave and IFunc parameters
-        7. Variable-index chromatic delay parameters
+def _active_unsupported_components(
+    model: TimingModel, converted: set[str], invariant: set[str]
+) -> tuple[set[str], set[str]]:
+    """Find unhandled parameters from PINT's actual delay/phase graph."""
+    unsupported: set[str] = set()
+    components: set[str] = set()
+    forward_components = model.DelayComponent_list + model.PhaseComponent_list
+
+    for component in forward_components:
+        component_unsupported = set()
+        for name in component.params:
+            par = model[name]
+            if par.quantity is None or name in converted or name in invariant:
+                continue
+            if hasattr(par, "convert_tcb2tdb"):
+                component_unsupported.add(name)
+        if component_unsupported:
+            unsupported.update(component_unsupported)
+        if component_unsupported or not component.tcb2tdb_certified:
+            components.add(component.__class__.__name__)
+
+    return unsupported, components
+
+
+def convert_tcb_tdb(
+    model: TimingModel, backwards: bool = False
+) -> TCBTDBConversionReport:
+    """Convert every supported parameter between TCB and TDB.
+
+    The conversion follows PINT's IAU 2006 TDB, undilated-radio-frequency
+    forward model. Unsupported active deterministic terms are left unchanged
+    and reported; they never prevent supported operations from completing.
 
     Parameters
     ----------
@@ -120,40 +180,96 @@ def convert_tcb_tdb(model: TimingModel, backwards: bool = False) -> None:
        Timing model to be converted.
     backwards : bool
         Whether to do TDB to TCB conversion. The default is TCB to TDB.
+
+    Returns
+    -------
+    TCBTDBConversionReport
+        Actual converted, invariant, and unsupported model terms. An accepted
+        report is covered by PINT's tested no-refit conversion contract.
     """
 
     target_units = "TCB" if backwards else "TDB"
+    source_units = "TDB" if backwards else "TCB"
 
     if model["UNITS"].value == target_units or (
         model["UNITS"].value is None and not backwards
     ):
         log.warning("The input par file is already in the target units. Doing nothing.")
-        return
+        report = TCBTDBConversionReport(
+            source_units=target_units,
+            target_units=target_units,
+            convention="iau2006-undilated-frequency",
+            converted=(),
+            invariant=(),
+            unsupported=(),
+            unaudited_components=(),
+        )
+        model.tcb_tdb_conversion_report = report
+        return report
 
-    log.warning(
-        "Converting this timing model from TCB to TDB. "
-        "Please note that the TCB to TDB conversion is only approximate and "
-        "the resulting timing model should be re-fit to get reliable results."
-    )
+    converted: set[str] = set()
+    invariant: set[str] = set()
+    unsupported: set[str] = set()
 
     for par in model.params:
         param = model[par]
-        if (
-            param.quantity is not None
-            and hasattr(param, "convert_tcb2tdb")
-            and param.convert_tcb2tdb
-        ):
+        if param.quantity is None:
+            continue
+        if getattr(param, "tcb2tdb_invariant", False):
+            invariant.add(par)
+            continue
+        if hasattr(param, "convert_tcb2tdb") and param.convert_tcb2tdb:
             if isinstance(param, (floatParameter, AngleParameter, maskParameter)) or (
                 isinstance(param, prefixParameter)
                 and isinstance(param.param_comp, (floatParameter, AngleParameter))
             ):
-                scale_parameter(model, par, -param.effective_dimensionality, backwards)
+                exponent = _scale_exponent(param)
+                if exponent == 0:
+                    invariant.add(par)
+                else:
+                    scale_parameter(model, par, exponent, backwards)
+                    converted.add(par)
             elif isinstance(param, MJDParameter) or (
                 isinstance(param, prefixParameter)
                 and isinstance(param.param_comp, MJDParameter)
             ):
-                transform_mjd_parameter(model, par, backwards)
+                if param.time_scale == "utc":
+                    invariant.add(par)
+                elif param.time_scale in {"tcb", "tdb"}:
+                    transform_mjd_parameter(model, par, backwards)
+                    converted.add(par)
+                else:
+                    unsupported.add(par)
+            else:
+                unsupported.add(par)
+
+    graph_unsupported, unaudited_components = _active_unsupported_components(
+        model, converted, invariant
+    )
+    unsupported.update(graph_unsupported)
 
     model["UNITS"].value = target_units
 
     model.validate(allow_tcb=backwards)
+
+    report = TCBTDBConversionReport(
+        source_units=source_units,
+        target_units=target_units,
+        convention="iau2006-undilated-frequency",
+        converted=tuple(sorted(converted)),
+        invariant=tuple(sorted(invariant)),
+        unsupported=tuple(sorted(unsupported)),
+        unaudited_components=tuple(sorted(unaudited_components)),
+    )
+    model.tcb_tdb_conversion_report = report
+
+    if not report.accepted:
+        log.warning(
+            "TCB/TDB conversion completed, but the no-refit accuracy contract "
+            "does not cover this model. Unsupported parameters: {}. "
+            "Unaudited components: {}.",
+            ", ".join(report.unsupported) or "none",
+            ", ".join(report.unaudited_components) or "none",
+        )
+
+    return report

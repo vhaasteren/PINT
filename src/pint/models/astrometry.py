@@ -57,6 +57,7 @@ class Astrometry(DelayComponent):
 
     register = False
     category = "astrometry"
+    tcb2tdb_certified = True
 
     def __init__(self):
         super().__init__()
@@ -74,8 +75,13 @@ class Astrometry(DelayComponent):
                 name="PX",
                 units="mas",
                 value=0.0,
-                description="Parallax",
+                description=(
+                    "Parallax (left invariant by TCB/TDB conversion because "
+                    "PINT implements no corresponding spatial-coordinate scaling)"
+                ),
+                convert_tcb2tdb=False,
                 tcb2tdb_scale_factor=(consts.c / u.au),
+                tcb2tdb_invariant=True,
             )
         )
 

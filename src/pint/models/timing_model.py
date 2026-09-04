@@ -274,13 +274,19 @@ class TimingModel:
         )
         self.add_param_from_top(
             MJDParameter(
-                name="START", description="Start MJD for fitting", convert_tcb2tdb=False
+                name="START",
+                description="Start MJD for fitting",
+                convert_tcb2tdb=False,
+                tcb2tdb_invariant=True,
             ),
             "",
         )
         self.add_param_from_top(
             MJDParameter(
-                name="FINISH", description="End MJD for fitting", convert_tcb2tdb=False
+                name="FINISH",
+                description="End MJD for fitting",
+                convert_tcb2tdb=False,
+                tcb2tdb_invariant=True,
             ),
             "",
         )
@@ -427,8 +433,10 @@ class TimingModel:
                 
                     $ tcb2tdb J1234+6789_tcb.par J1234+6789_tdb.par
                 
-                However, this conversion is not exact and a fit must be performed to obtain 
-                reliable results. Note that PINT only supports writing TDB par files. 
+                The converter processes every supported parameter and reports
+                unsupported active deterministic terms. Accepted conversions
+                satisfy PINT's tested no-refit accuracy contract. Note that
+                PINT only supports writing TDB par files.
                 """
                 raise ValueError(error_message)
             else:
@@ -3717,6 +3725,9 @@ class Component(metaclass=ModelMeta):
     """
 
     component_types = {}
+    # Opt in only after the component's real delay/phase method has a
+    # discriminating TCB/TDB conversion test.
+    tcb2tdb_certified = False
 
     def __init__(self):
         self.params = []
