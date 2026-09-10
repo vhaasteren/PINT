@@ -13,5 +13,7 @@ the released changes.
 - Time-domain solar wind GP noise components: ridge, squared-exponential, Matérn, and quasi-periodic kernels
 - Documentation page explaining the time-domain solar wind noise model, its interpolation basis, and how it differs from the Fourier-basis noise models
 - `TOAs.get_tdb_seconds()`, returning the TDB times of the TOAs in seconds with a selectable dtype
+- `BINARY DDR` (Damour-Deruelle-Regular binary): `BinaryDDR` wrap around the stand-alone delay kernel, native total-phase `FB0`-`FBn` charts with general order (scaled Horner, computational centering, `DDR_FB_KMAX`, no silent FB5 truncation), analytic astrometric and batched full-model derivatives including the `-B_t A_θ` time-argument correction, strict unsupported-parameter validation, WLS recovery, and exact secular/gauge-aware `convert_binary` import/export with fit-space and uncertainty reporting. ELL1 `TASC` is translated by \(3/2\,xh\) with the phase chart and `A1` copied; ELL1H absorbed conversions apply the Freire-Wex orbit encode/decode once as the complete map.
+- Binary orbital-phase normalization now accepts `PB` (and optionally ordinary `PBDOT`) together with `FBn` while `FB0` is omitted. PINT converts the nominal model to a canonical FBX Taylor series, inserts frozen zero coefficients for sparse indices, and exposes `PB`/`PBDOT` as read-only derived views. Every valued FB coefficient is now guaranteed to contribute to orbital phase or produce a clear error.
 ### Fixed
 ### Removed
