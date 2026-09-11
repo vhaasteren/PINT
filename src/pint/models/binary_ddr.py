@@ -525,6 +525,10 @@ class BinaryDDR(PulsarBinary):
         self.binary_model_name = "DDR"
         self.binary_model_class = DDRmodel
         self.warn_default_params = []
+        # DDR applies -B_t A_θ through d_ddr_time_argument_correction on
+        # upstream parameters. The kernel is not a PSR_BINARY, so the generic
+        # delay_deriv_wrt_prev_delay chain would both crash and double-count.
+        self.delay_deriv_wrt_prev_delay_funcs = []
         self._tgeo_materialized = False
         self._schema_finalized = False
         self._finalized_modes = None

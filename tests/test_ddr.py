@@ -465,6 +465,7 @@ def test_inherited_binary_names_are_classified():
     placeholders = {"EDOT"}
     refused = {
         "FB0",
+        "A1DOT2",
         "ORBWAVEC0",
         "ORBWAVES0",
         "ORBWAVE_OM",
