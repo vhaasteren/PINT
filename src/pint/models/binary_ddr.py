@@ -482,6 +482,9 @@ def _analytic_space_motion(
 class BinaryDDR(PulsarBinary):
     """Damour-Deruelle-Regular binary model (``BINARY DDR``).
 
+    Regular: delay nonsingular at ``e=0``. Not a Laplace-Lagrange rename
+    of DD/ELL1.
+
     Coordinates are the anomalistic period ``PB``, projected axis ``A1`` at
     ``TASC``, Laplace-Lagrange ``(EPS1, EPS2)`` at ``TASC``, companion mass
     ``M2``, and DT92 ``COSI``. ``TGEO`` is the frozen astrometric origin of the
