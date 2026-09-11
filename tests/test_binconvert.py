@@ -10,6 +10,7 @@ import pint.simulation
 import pint.fitter
 import pint.binaryconvert
 
+
 parDD = """
 PSRJ           1855+09
 RAJ             18:57:36.3932884         0  0.00002602730280675029
@@ -149,11 +150,12 @@ kwargs = {"ELL1H": {"NHARMS": 3, "useSTIGMA": True}, "DDK": {"KOM": 0 * u.deg}}
 def _assert_roundtrip_param(m, mback, p):
     """Compare one parameter after a binary-model roundtrip.
 
-    ``MJDParameter.quantity`` is an ``astropy.time.Time``, but ``.value`` is a
-    long-double MJD. ELL1↔DD epoch transforms have ULP-level noise (~1e-15 d),
-    so Time/MJD parameters use a tight absolute tolerance rather than exact
-    equality or the default ``np.isclose`` relative tolerance (which would
-    allow ~0.5 d error at MJD 55631).
+    Numeric parameters use ``np.isclose``.  MJD/``Time`` parameters cannot use
+    exact ``==``: ``convert_binary`` propagates TASC↔T0 through
+    ``uncertainties`` (float64), and platforms with IEEE binary128
+    ``numpy.longdouble`` (e.g. Linux aarch64) expose sub-ns residuals that
+    still matched under 80-bit x87 longdouble bit-equality by coincidence.
+    Allow about one float64 ulp at the MJD magnitude.
     """
     left = getattr(m, p)
     right = getattr(mback, p)
@@ -165,8 +167,11 @@ def _assert_roundtrip_param(m, mback, p):
         ), f"{p}: {left.value} does not match {right.value}"
         return
     if isinstance(left.quantity, astropy.time.Time):
+        a = np.longdouble(left.value)
+        b = np.longdouble(right.value)
+        atol = np.finfo(np.float64).eps * max(abs(float(a)), abs(float(b)), 1.0)
         assert np.isclose(
-            left.value, right.value, rtol=0, atol=1e-12
+            a, b, rtol=0.0, atol=atol
         ), f"{p}: {left.value} does not match {right.value}"
         return
     assert np.isclose(
