@@ -367,3 +367,59 @@ def test_outer_orbit_affects_delay_family(family):
     m.A1_2.quantity = 0 * u.lsec
     d1 = m.delay(toas)
     assert np.max(np.abs((d1 - d0).to_value(u.s))) > 1e-9
+
+
+def _fb_triple_par(fb1=None):
+    """Return the DD triple parfile text with the inner orbit expressed in
+    orbital frequency (``FB0`` = 1/``PB``, optionally ``FB1``) instead of ``PB``."""
+    lines = []
+    with open(TRIPLE_PAR) as f:
+        for line in f:
+            parts = line.split()
+            if parts and parts[0] == "PB":
+                pb_s = np.longdouble(parts[1]) * 86400
+                lines.append(f"FB0 {1 / pb_s:.25e} 1\n")
+                if fb1 is not None:
+                    lines.append(f"FB1 {fb1:.25e} 1\n")
+                continue
+            lines.append(line)
+    return "".join(lines)
+
+
+@pytest.mark.parametrize("fb1", [None, -3.0e-20])
+def test_inner_orbit_fb_parameterization(triple_model, toas, fb1):
+    """The inner orbit of a hierarchical triple can use the orbital-frequency
+    (``FBn``) parameterization: ``FB0``/``FB1`` are owned by the inner
+    ``BinaryDD``, the outer ``BinaryDD2`` has no ``FBn`` parameters, and the
+    delay matches the equivalent ``PB``/``PBDOT`` triple to numerical noise."""
+    m_fb = mb.get_model(io.StringIO(_fb_triple_par(fb1)))
+
+    inner = m_fb.components["BinaryDD"]
+    outer = m_fb.components["BinaryDD2"]
+    assert "FB0" in inner.params
+    assert inner.FB0.value is not None
+    assert m_fb.PB.value is None
+    assert not any(p.startswith("FB") for p in outer.params)
+    assert "PB_2" in outer.params
+    assert m_fb.PB_2.quantity == triple_model.PB_2.quantity
+
+    d_fb = m_fb.delay(toas)
+    assert np.all(np.isfinite(d_fb.value))
+
+    # PB-equivalent reference: PBDOT = -FB1 / FB0**2.
+    m_pb = mb.get_model(TRIPLE_PAR)
+    if fb1 is not None:
+        assert "FB1" in inner.params
+        m_pb.PBDOT.quantity = (-m_fb.FB1.quantity / m_fb.FB0.quantity**2).to(
+            u.dimensionless_unscaled
+        )
+    d_pb = m_pb.delay(toas)
+
+    diff = np.max(np.abs((d_fb - d_pb).to_value(u.s)))
+    assert diff < 1e-11
+
+    # The FBn parameters of the inner orbit remain fittable inside the triple.
+    for p in ["FB0"] + (["FB1"] if fb1 is not None else []):
+        d = m_fb.d_delay_d_param(toas, p)
+        assert np.all(np.isfinite(d.value))
+        assert np.any(d.value != 0)
