@@ -603,6 +603,8 @@ components.
      light-travel-time coupling of two independent Keplerian orbits; it is not
      a dynamical three-body model (there is no companion–companion gravity,
      Kozai–Lidov coupling, or mutual Shapiro delay between the companions).
+     The outer orbit is period-parameterized only: ``FBn`` and ``ORBWAVE`` are
+     not supported for ``BINARY2`` (the inner orbit may still use them).
    - Each model component has one or more "special parameters" or families of
      parameters identified by a common prefix. If a par file contains a special
      parameter, or a known alias of one, then the timing model uses the
