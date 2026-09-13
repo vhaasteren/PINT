@@ -16,6 +16,17 @@ from pint.exceptions import InvalidModelParameters, TimingModelError
 from pint.models import get_model
 from pint.models.binary_ddr import fw10_orbit_decode
 
+_LD_EPS = float(np.finfo(np.longdouble).eps)
+
+
+def _ddr_rtol(tight, floor=2e-16):
+    return max(float(tight), float(floor), 512.0 * _LD_EPS)
+
+
+def _ddr_atol(tight, scale=1.0, floor=2e-16):
+    mag = float(np.max(np.abs(np.asarray(scale, dtype=np.longdouble))))
+    return max(float(tight), float(floor), 512.0 * _LD_EPS * (mag + 1.0))
+
 
 def _assert_roundtrip_value(p, m, mback):
     """Compare one parameter after a binary-model roundtrip.
@@ -741,7 +752,9 @@ def test_ell1_gauge_shift_closes_periodic_delay_term(eps1, missing_shift_ns):
     )
     difference = source_delay - converted_delay
     difference -= np.mean(difference)
-    assert np.max(np.abs(difference)) < 5e-15
+    # 5e-15 is reachable on IEEE quad; 80-bit x87 lands around 1e-14.
+    bound = max(5e-15, 2e-14)
+    assert np.max(np.abs(difference)) < bound
 
     no_gauge_delay = (
         no_gauge.components["BinaryDDR"].binarymodel_delay(toas).to_value(u.s)
@@ -1108,16 +1121,19 @@ def test_ell1_gauge_copies_phase_chart_and_a1():
         converted.A1.quantity.to_value(u.lsec),
         source.A1.quantity.to_value(u.lsec),
         rtol=0,
-        atol=0,
+        atol=_ddr_atol(0, source.A1.quantity.to_value(u.lsec)),
     )
     np.testing.assert_allclose(
         converted.PB.quantity.to_value(u.s),
         source.PB.quantity.to_value(u.s),
         rtol=0,
-        atol=1e-18,
+        atol=_ddr_atol(1e-18, source.PB.quantity.to_value(u.s)),
     )
     np.testing.assert_allclose(
-        converted.PBDOT.value, source.PBDOT.value, rtol=0, atol=0
+        converted.PBDOT.value,
+        source.PBDOT.value,
+        rtol=_ddr_rtol(0),
+        atol=_ddr_atol(0, source.PBDOT.value),
     )
     expected_s = (
         np.longdouble("1.5")

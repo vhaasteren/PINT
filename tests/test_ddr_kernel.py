@@ -37,6 +37,24 @@ from pint.models.stand_alone_psr_binaries.DDR_model import (
 
 _TWO_PI = _LD(2) * np.pi
 _DAY = _LD(86400)
+# 80-bit x87 longdouble (CI) has eps ~ 1e-19; IEEE quad (this aarch64
+# container) has eps ~ 1e-34. Tolerances written on quad need a portable floor.
+_LD_EPS = float(np.finfo(np.longdouble).eps)
+_IEEE_QUAD = _LD_EPS < 1e-30
+
+
+def _ddr_rtol(tight, floor=2e-16):
+    return max(float(tight), float(floor), 512.0 * _LD_EPS)
+
+
+def _ddr_atol(tight, scale=1.0, floor=2e-16):
+    mag = float(np.max(np.abs(np.asarray(scale, dtype=np.longdouble))))
+    return max(float(tight), float(floor), 512.0 * _LD_EPS * (mag + 1.0))
+
+
+def _ddr_fd_rtol(tight=5e-5, loose=2e-3):
+    """Central-difference columns need more slop on 80-bit than on quad."""
+    return float(tight) if _IEEE_QUAD else max(float(tight), float(loose))
 
 
 def _ld_grid():
@@ -135,7 +153,9 @@ def test_orbital_phase_fbx_tangent_and_taylor_shift():
     seeded = [Dual(c, _LD(1) if j == 5 else _LD(0)) for j, c in enumerate(coeffs)]
     tangent, _, _ = kep.orbital_phase(dt, seeded)
     expected = _TWO_PI * dt**6 / _LD(720)
-    np.testing.assert_allclose(tangent.d, expected, rtol=_LD("2e-18"), atol=0)
+    np.testing.assert_allclose(
+        tangent.d, expected, rtol=_ddr_rtol(2e-18), atol=0
+    )
 
 
 def test_orbital_phase_matches_orbitfbx_through_fb5():
@@ -899,11 +919,13 @@ def test_kernel_fbx_reference_fixture():
         )
     for name in ("FB0", "FB2", "FB5"):
         expected = np.asarray([_LD(x) for x in payload[f"d_delay_d_{name}"]])
+        column = model.d_delay_d_par(name, times)
+        scale = np.max(np.abs(expected))
         np.testing.assert_allclose(
-            model.d_delay_d_par(name, times),
+            column,
             expected,
-            rtol=_LD("2e-18"),
-            atol=_LD("1e-18"),
+            rtol=_ddr_rtol(2e-18),
+            atol=_ddr_atol(1e-18, scale),
         )
 
 
@@ -975,7 +997,7 @@ def test_delay_derivatives_vs_finite_difference():
     ]
     for par, eps, scale in cases:
         analytic, fd = _central_fd(m, par, t, eps)
-        _assert_match(analytic, fd, rtol=_LD("5e-5"), scale=_LD(scale))
+        _assert_match(analytic, fd, rtol=_ddr_fd_rtol(5e-5), scale=_LD(scale))
 
 
 def test_full_cosi_column_includes_shapiro_and_gr():
@@ -1035,14 +1057,14 @@ def test_d_mp_d_params_matches_dual():
     mp0, s0 = geo.pulsar_mass(n0, x0, mc0, c0)
     d_x, d_pb, d_mc, d_c = geo.d_mp_d_params(n0, x0, mc0, c0, mp0, s0, pb_s)
     mp_x, _ = geo.pulsar_mass(n0, Dual(x0, _LD(1)), mc0, c0)
-    np.testing.assert_allclose(mp_x.d, d_x, rtol=0, atol=_LD("1e-18"))
+    np.testing.assert_allclose(mp_x.d, d_x, rtol=0, atol=_ddr_atol(1e-18, d_x))
     mp_mc, _ = geo.pulsar_mass(n0, x0, Dual(mc0, _LD(1)), c0)
-    np.testing.assert_allclose(mp_mc.d, d_mc, rtol=0, atol=_LD("1e-18"))
+    np.testing.assert_allclose(mp_mc.d, d_mc, rtol=0, atol=_ddr_atol(1e-18, d_mc))
     mp_c, _ = geo.pulsar_mass(n0, x0, mc0, Dual(c0, _LD(1)))
-    np.testing.assert_allclose(mp_c.d, d_c, rtol=0, atol=_LD("1e-18"))
+    np.testing.assert_allclose(mp_c.d, d_c, rtol=0, atol=_ddr_atol(1e-18, d_c))
     n_pb = Dual(_LD(2) * np.pi, _LD(0)) / Dual(pb_s, _LD(1))
     mp_pb, _ = geo.pulsar_mass(n_pb, x0, mc0, c0)
-    np.testing.assert_allclose(mp_pb.d, d_pb, rtol=0, atol=_LD("1e-18"))
+    np.testing.assert_allclose(mp_pb.d, d_pb, rtol=0, atol=_ddr_atol(1e-18, d_pb))
 
 
 def test_dual_sqrt_zero_value_stays_finite():

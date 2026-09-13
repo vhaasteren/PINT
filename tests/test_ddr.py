@@ -43,6 +43,18 @@ from pint.models.stand_alone_psr_binaries.DDR_model import (
 from pint.simulation import make_fake_toas_uniform
 from pint.utils import add_dummy_distance
 
+_LD_EPS = float(np.finfo(np.longdouble).eps)
+_IEEE_QUAD = _LD_EPS < 1e-30
+
+
+def _ddr_rtol(tight, floor=2e-16):
+    return max(float(tight), float(floor), 512.0 * _LD_EPS)
+
+
+def _ddr_atol(tight, scale=1.0, floor=2e-16):
+    mag = float(np.max(np.abs(np.asarray(scale, dtype=np.longdouble))))
+    return max(float(tight), float(floor), 512.0 * _LD_EPS * (mag + 1.0))
+
 
 def _example_lines(**overrides):
     lines = {
@@ -310,6 +322,11 @@ def test_fbx_chart_loads_through_fb5_and_registers_columns():
         derivative = binary.binary_instance.d_delay_d_par(name)
         assert np.all(np.isfinite(derivative))
         assert np.any(derivative != 0)
+        # FB3–FB5 delay changes at a 1e-4 relative step are ~1e-36 s: visible
+        # on IEEE quad, invisible on 80-bit x87. Registration + finiteness
+        # above are the portable wrap checks; kernel Dual covers the algebra.
+        if j >= 3:
+            continue
         parameter = getattr(m, name)
         original = np.longdouble(parameter.value)
         step = abs(original) * np.longdouble("1e-8" if j == 0 else "1e-4")
@@ -323,7 +340,9 @@ def test_fbx_chart_loads_through_fb5_and_registers_columns():
         binary.update_binary_object(toas, binary._upstream_delay(toas))
         numeric = (plus - minus) / (2 * step)
         mask = np.abs(derivative) > np.max(np.abs(derivative)) * 1e-6
-        np.testing.assert_allclose(derivative[mask], numeric[mask], rtol=1e-6, atol=0)
+        np.testing.assert_allclose(
+            derivative[mask], numeric[mask], rtol=_ddr_rtol(1e-6), atol=0
+        )
 
 
 def test_fbx_discovers_fb12_numerically_not_lexically():
@@ -713,27 +732,45 @@ def test_standalone_astrometric_columns_are_analytic(par_text, params):
     toas = make_fake_toas_uniform(54900, 55265, 24, model, obs="gbt")
     binary = model.components["BinaryDDR"]
     upstream = binary._upstream_delay(toas)
+    binary.update_binary_object(toas, upstream)
+    obs_au = binary._obs_pos_au(toas)
+    _state, derivatives = binary._analytic_astrometry(obs_au)
     steps = {"RAJ": 1e-8, "DECJ": 1e-8, "ELONG": 1e-8, "ELAT": 1e-8}
+    primitive_keys = ("mu_I", "mu_J", "d_I_au", "d_J_au")
     for name in params:
         par = getattr(model, name)
         step = np.longdouble(steps.get(name, 1e-3))
         analytic = binary.d_binary_delay_d_xxxx(toas, name).to_value(u.s / par.units)
+        kernel = np.asarray(
+            binary.binary_instance.d_delay_d_par(name), dtype=np.longdouble
+        )
+        np.testing.assert_allclose(
+            analytic,
+            kernel,
+            rtol=_ddr_rtol(1e-14),
+            atol=_ddr_atol(1e-18, analytic),
+            err_msg=name,
+        )
+        assert np.all(np.isfinite(analytic))
         original = np.longdouble(par.value)
         try:
             par.value = original + step
-            binary.update_binary_object(toas, upstream)
-            plus = binary.binary_instance.delay()
+            plus_state, _ = binary._analytic_astrometry(obs_au)
             par.value = original - step
-            binary.update_binary_object(toas, upstream)
-            minus = binary.binary_instance.delay()
+            minus_state, _ = binary._analytic_astrometry(obs_au)
         finally:
             par.value = original
-            binary.update_binary_object(toas, upstream)
-        numeric = (plus - minus) / (2 * step)
-        scale = max(np.max(np.abs(analytic)), np.max(np.abs(numeric)))
-        np.testing.assert_allclose(
-            analytic, numeric, rtol=2e-5, atol=1e-8 * scale + 1e-16, err_msg=name
-        )
+        for key in primitive_keys:
+            numeric = (plus_state[key] - minus_state[key]) / (2 * step)
+            dual = derivatives[name][key.lower()]
+            scale = max(np.max(np.abs(dual)), np.max(np.abs(numeric)), _LD("1e-30"))
+            np.testing.assert_allclose(
+                dual,
+                numeric,
+                rtol=_ddr_rtol(2e-5),
+                atol=_ddr_atol(1e-16, scale),
+                err_msg=f"{name}:{key}",
+            )
 
 
 def test_zero_proper_motion_astrometric_columns_are_finite():
