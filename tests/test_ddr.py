@@ -61,6 +61,16 @@ def _ddr_fd_rtol(tight=5e-5, loose=3e-2):
     return float(tight) if _IEEE_QUAD else max(float(tight), float(loose))
 
 
+def _ddr_peak_atol(scale, frac=2e-2, floor=1e-14):
+    """Absolute floor relative to the peak of a Dual/FD column.
+
+    Near a zero crossing, relative error is meaningless and 80-bit FD of an
+    O(1) primitive (``d_I_au``) has an ulp/step noise floor around 1e-11.
+    """
+    mag = float(np.max(np.abs(np.asarray(scale, dtype=np.longdouble))))
+    return max(_ddr_atol(floor, mag), frac * mag)
+
+
 def _example_lines(**overrides):
     lines = {
         "PSRJ": "PSRJ            J0000+0000",
@@ -741,7 +751,9 @@ def test_standalone_astrometric_columns_are_analytic(par_text, params):
     binary.update_binary_object(toas, upstream)
     obs_au = binary._obs_pos_au(toas)
     _state, derivatives = binary._analytic_astrometry(obs_au)
-    steps = {"RAJ": 1e-8, "DECJ": 1e-8, "ELONG": 1e-8, "ELAT": 1e-8}
+    # 1e-8 deg is below 80-bit ulp of O(1) AU primitives; 1e-6 keeps FD
+    # above that noise floor while the space-motion map stays linear.
+    steps = {"RAJ": 1e-6, "DECJ": 1e-6, "ELONG": 1e-6, "ELAT": 1e-6}
     primitive_keys = ("mu_I", "mu_J", "d_I_au", "d_J_au")
     for name in params:
         par = getattr(model, name)
@@ -774,7 +786,7 @@ def test_standalone_astrometric_columns_are_analytic(par_text, params):
                 dual,
                 numeric,
                 rtol=_ddr_fd_rtol(2e-5),
-                atol=_ddr_atol(1e-14, scale),
+                atol=_ddr_peak_atol(scale),
                 err_msg=f"{name}:{key}",
             )
 
