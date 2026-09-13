@@ -122,6 +122,22 @@ def _propagate_diagonal_sky_uncertainties(
     return sigma_lon_out, sigma_lat_out
 
 
+def _scalar_or_none_epoch(epoch: Optional[time_like]) -> Optional[time_like]:
+    """Return ``epoch`` when it is a single instant, else ``None``.
+
+    ``as_ECL`` / ``as_ICRS`` accept an array of times for coordinate helpers,
+    but the uncertainty Jacobian is a 2×2 at one sky position. Broadcast
+    positions plus scalar proper-motion probes raise Astropy's
+    ``Shape of differentials must be the same as the shape of the
+    representation``.
+    """
+    if epoch is None:
+        return None
+    if isinstance(epoch, Time):
+        return epoch if epoch.isscalar or epoch.size == 1 else None
+    return epoch if np.size(epoch) == 1 else None
+
+
 def _epoch_fingerprint(epoch: Optional[time_like]) -> Tuple[Tuple, bytes]:
     """Return a view of the epoch that is suitable for use as a cache key"""
     if isinstance(epoch, Time):
@@ -970,8 +986,9 @@ class AstrometryEquatorial(Astrometry):
 
         # Propagate diagonal uncertainties via covariance rotation (not a
         # signed-vector "fake PM" transform). RAJ/ELONG uncertainties do not
-        # include cos(lat); PMRA/PMELONG do.
-        source_c = self.coords_as_ICRS(epoch=epoch)
+        # include cos(lat); PMRA/PMELONG do. A vector ``epoch`` is allowed for
+        # coordinate helpers; the Jacobian stays at one sky position.
+        source_c = self.coords_as_ICRS(epoch=_scalar_or_none_epoch(epoch))
 
         def _icrs_sky(pm_ra_cosdec, pm_dec):
             return coords.SkyCoord(
@@ -1555,7 +1572,9 @@ class AstrometryEcliptic(Astrometry):
         m_ecl.PMELAT.quantity = c.pm_lat
         m_ecl.ECL.value = ecl
 
-        source_c = self.coords_as_ECL(epoch=epoch, ecl=self.ECL.value)
+        source_c = self.coords_as_ECL(
+            epoch=_scalar_or_none_epoch(epoch), ecl=self.ECL.value
+        )
 
         def _ecl_sky(pm_lon_coslat, pm_lat):
             return coords.SkyCoord(
@@ -1620,7 +1639,9 @@ class AstrometryEcliptic(Astrometry):
         m_eq.PMRA.quantity = c.pm_ra_cosdec
         m_eq.PMDEC.quantity = c.pm_dec
 
-        source_c = self.coords_as_ECL(epoch=epoch, ecl=self.ECL.value)
+        source_c = self.coords_as_ECL(
+            epoch=_scalar_or_none_epoch(epoch), ecl=self.ECL.value
+        )
 
         def _ecl_sky(pm_lon_coslat, pm_lat):
             return coords.SkyCoord(
