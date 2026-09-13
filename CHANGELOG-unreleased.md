@@ -9,16 +9,12 @@ the released changes.
 
 ## Unreleased
 ### Changed
-- Moved altitude calculation to TOAs object, to make it only happen once
-- `WidebandDownhillFitter` now handles correlated noise correctly.
-- `pintk` Diff/Unc calculation now uses post-fit uncertainties.
-- Updated GMRT coordinates.
-- Replaced custom ``pint.ls`` with astropy ``u.lsec``
-- Updated code to remove deprecation warnings during CI
+- `d_delay_d_param` now applies the chain rule for delay components that respond to delays accumulated from earlier components (e.g. a binary delay's dependence on its evaluation epoch). Design-matrix entries for binary pulsars change at the ~1e-5 relative level. The parameter-independent ingredients are computed once per design matrix via the new `TimingModel.delay_deriv_chain`; the unused `acc_delay` argument of `d_delay_d_param` was replaced by the optional `chain` argument.
 ### Added
-- Plot whitened DM residuals in pintk.
-- `ssb_to_psb_xyz_ECL` and `ssb_to_psb_xyz_ICRS` are now cached
-- ELL1H with H3+STIGMA: add opt-in ``ell1h_shapiro="absorbed"`` to select Freire & Wex Eq. (28) (Tempo2 ELL1H/T2 mode 1). Default remains Eq. (29) ``"full"`` (`get_model` / `get_model_and_toas` / `ModelBuilder`).
+- Support for hierarchical triple systems: a second (outer) binary component can be added via a `BINARY2` line with `_2`-suffixed orbital parameters (e.g. `PB_2`, `A1_2`). Outer orbit delay is computed before, and propagated into, the inner binary. Outer wrappers `BinaryDD2`, `BinaryBT2`, and `BinaryELL12` are provided. Delay derivatives account for the outer→inner coupling (chain rule through the previous delay). The projected semi-major axis includes a second time derivative `A1DOT2` (alias `X2DOT`).
+- Time-domain solar wind GP noise components: ridge, squared-exponential, Matérn, and quasi-periodic kernels
+- Documentation page explaining the time-domain solar wind noise model, its interpolation basis, and how it differs from the Fourier-basis noise models
+- `TOAs.get_tdb_seconds()`, returning the TDB times of the TOAs in seconds with a selectable dtype
 ### Fixed
 - Propagate one-way astrometric marginal uncertainties in ``as_ECL`` / ``as_ICRS`` by diagonal covariance rotation instead of a signed "fake proper motion" vector. The old ``as_ECL`` path could assign a negative ELONG/ELAT uncertainty (breaking model construction) after an ecliptic↔ICRS round trip, and both directions returned the wrong marginal σ after a non-trivial frame rotation. Correlations induced by conversion are not retained because timing-model parameters store only marginal uncertainties.
 - Remove spurious ``/ Tsun`` factor from analytic DDH ``∂delay/∂STIGMA`` (design matrix / GLS for free ``STIGMA`` was wrong by ``1/Tsun`` since the Maple rewrite in PINT ≥ 1.0).
@@ -41,4 +37,5 @@ the released changes.
 - Make VLBI frame rotation work correctly when proper motion is present.
 - Changed some API to pass Mac CI
 - Log-separated frequency computation for red noise components.
+- Place ``solar_windx`` before the binary in ``DEFAULT_ORDER`` so SolarWindDispersionX delays and derivatives chain-rule through the binary the same way as ``solar_wind``.
 ### Removed
