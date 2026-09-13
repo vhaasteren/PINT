@@ -19,4 +19,5 @@ the released changes.
 - Binary orbital-phase normalization now accepts `PB` (and optionally ordinary `PBDOT`) together with `FBn` while `FB0` is omitted. PINT converts the nominal model to a canonical FBX Taylor series, inserts frozen zero coefficients for sparse indices, and exposes `PB`/`PBDOT` as read-only derived views. Every valued FB coefficient is now guaranteed to contribute to orbital phase or produce a clear error.
 ### Fixed
 - Place ``solar_windx`` before the binary in ``DEFAULT_ORDER`` so SolarWindDispersionX delays and derivatives chain-rule through the binary the same way as ``solar_wind``.
+- DDR batched-derivative cache keys now fingerprint upstream delay and parameter values in ``float64``, so 80-bit ``longdouble`` ulp jitter does not force a fresh Dual batch per column.
 ### Removed

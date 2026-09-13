@@ -1658,10 +1658,14 @@ class BinaryDDR(PulsarBinary):
         return self.binary_instance.delay() * u.s
 
     def _derivative_cache_key(self, toas, A, analytic_names):
+        # float64 tokens, not longdouble bytes / repr: 80-bit x87 (CI) can
+        # recompute the same upstream delay at a different ulp, which would
+        # otherwise miss the batch cache and re-run Dual for every column.
         values = tuple(
-            (name, repr(getattr(self._parent, name).value)) for name in analytic_names
+            (name, float(np.float64(getattr(self._parent, name).value)))
+            for name in analytic_names
         )
-        a_values = np.asarray(A.to_value(u.s), dtype=np.longdouble)
+        a_values = np.asarray(A.to_value(u.s), dtype=np.float64)
         tdb = np.asarray(toas.table["tdbld"], dtype=np.float64)
         return (tdb.tobytes(), values, a_values.shape, a_values.tobytes())
 
