@@ -1003,9 +1003,7 @@ def _m2_sini_shapiro(model, *, cosi=None, report):
         cosi_value = _sini_to_cosi_prograde(sini_par.value)
         report["orientation"].append("assumed_prograde")
     else:
-        cosi_value = np.longdouble(
-            u.Quantity(cosi).to_value(u.dimensionless_unscaled)
-        )
+        cosi_value = np.longdouble(u.Quantity(cosi).to_value(u.dimensionless_unscaled))
         report["orientation"].append("declared_cosi")
     report["shapiro"].append("unchanged")
     return m2, cosi_value, False

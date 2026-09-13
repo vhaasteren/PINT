@@ -436,9 +436,7 @@ def test_validate_toas_refuses_fbx_slope_minimum_between_grid_nodes():
         }
     )
     with pytest.raises(TimingModelError, match="slope"):
-        m.components["BinaryDDR"]._validate_phase_slope_on_span(
-            toas, SimpleNamespace()
-        )
+        m.components["BinaryDDR"]._validate_phase_slope_on_span(toas, SimpleNamespace())
 
 
 def test_pb_plus_fb2_bridges_to_complete_fbx_chart():

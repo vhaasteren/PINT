@@ -153,9 +153,7 @@ def test_orbital_phase_fbx_tangent_and_taylor_shift():
     seeded = [Dual(c, _LD(1) if j == 5 else _LD(0)) for j, c in enumerate(coeffs)]
     tangent, _, _ = kep.orbital_phase(dt, seeded)
     expected = _TWO_PI * dt**6 / _LD(720)
-    np.testing.assert_allclose(
-        tangent.d, expected, rtol=_ddr_rtol(2e-18), atol=0
-    )
+    np.testing.assert_allclose(tangent.d, expected, rtol=_ddr_rtol(2e-18), atol=0)
 
 
 def test_orbital_phase_matches_orbitfbx_through_fb5():
