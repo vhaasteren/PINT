@@ -5,6 +5,7 @@ from copy import deepcopy
 from io import StringIO
 
 import astropy.units as u
+import erfa
 import numpy as np
 import pytest
 from astropy.table import Table
@@ -200,14 +201,19 @@ def test_fixed_frequency_dm_and_fd_scaling():
 
 def test_k_power_minus_one_is_the_small_increment():
     # K-1 from L_B/(1-L_B), not from a float64 value sitting next to 1.
-    L = np.longdouble(1) - TCB_TDB_F
-    dk = L / TCB_TDB_F
+    # Use ERFA's L_B, the same primitive as the implementation. Reconstructing
+    # L as ``1 - F`` is ``1 - (1 - L_B)`` and is not bit-identical to ``L_B``
+    # on 80-bit x87 longdouble (CI), even though it is on IEEE quad.
+    L = np.longdouble(erfa.ELB)
+    f = TCB_TDB_F
+    dk = L / f
     assert _k_power_minus_one(0) == 0
     assert _k_power_minus_one(1) == dk
     assert _k_power_minus_one(-1) == -L
-    assert _k_power_minus_one(2) == L * (np.longdouble(2) - L) / (TCB_TDB_F * TCB_TDB_F)
+    assert _k_power_minus_one(2) == L * (np.longdouble(1) + f) / (f * f)
+    reconstructed = (np.longdouble(1) - f) / f
     naive = np.longdouble(np.float64(TCB_TDB_K) - np.float64(1))
-    assert abs(_k_power_minus_one(1) - dk) < abs(naive - dk)
+    assert abs(_k_power_minus_one(1) - reconstructed) < abs(naive - reconstructed)
 
 
 def test_spindown_phase_closes_without_refitting():
