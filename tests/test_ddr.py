@@ -43,6 +43,33 @@ from pint.models.stand_alone_psr_binaries.DDR_model import (
 from pint.simulation import make_fake_toas_uniform
 from pint.utils import add_dummy_distance
 
+_LD_EPS = float(np.finfo(np.longdouble).eps)
+_IEEE_QUAD = _LD_EPS < 1e-30
+
+
+def _ddr_rtol(tight, floor=2e-16):
+    return max(float(tight), float(floor), 512.0 * _LD_EPS)
+
+
+def _ddr_atol(tight, scale=1.0, floor=2e-16):
+    mag = float(np.max(np.abs(np.asarray(scale, dtype=np.longdouble))))
+    return max(float(tight), float(floor), 512.0 * _LD_EPS * (mag + 1.0))
+
+
+def _ddr_fd_rtol(tight=5e-5, loose=3e-2):
+    """Central-difference columns need more slop on 80-bit than on quad."""
+    return float(tight) if _IEEE_QUAD else max(float(tight), float(loose))
+
+
+def _ddr_peak_atol(scale, frac=2e-2, floor=1e-14):
+    """Absolute floor relative to the peak of a Dual/FD column.
+
+    Near a zero crossing, relative error is meaningless and 80-bit FD of an
+    O(1) primitive (``d_I_au``) has an ulp/step noise floor around 1e-11.
+    """
+    mag = float(np.max(np.abs(np.asarray(scale, dtype=np.longdouble))))
+    return max(_ddr_atol(floor, mag), frac * mag)
+
 
 def _example_lines(**overrides):
     lines = {
@@ -310,6 +337,11 @@ def test_fbx_chart_loads_through_fb5_and_registers_columns():
         derivative = binary.binary_instance.d_delay_d_par(name)
         assert np.all(np.isfinite(derivative))
         assert np.any(derivative != 0)
+        # FB3–FB5 delay changes at a 1e-4 relative step are ~1e-36 s: visible
+        # on IEEE quad, invisible on 80-bit x87. Registration + finiteness
+        # above are the portable wrap checks; kernel Dual covers the algebra.
+        if j >= 3:
+            continue
         parameter = getattr(m, name)
         original = np.longdouble(parameter.value)
         step = abs(original) * np.longdouble("1e-8" if j == 0 else "1e-4")
@@ -323,7 +355,12 @@ def test_fbx_chart_loads_through_fb5_and_registers_columns():
         binary.update_binary_object(toas, binary._upstream_delay(toas))
         numeric = (plus - minus) / (2 * step)
         mask = np.abs(derivative) > np.max(np.abs(derivative)) * 1e-6
-        np.testing.assert_allclose(derivative[mask], numeric[mask], rtol=1e-6, atol=0)
+        np.testing.assert_allclose(
+            derivative[mask],
+            numeric[mask],
+            rtol=_ddr_fd_rtol(1e-6),
+            atol=_ddr_atol(1e-12, derivative[mask]),
+        )
 
 
 def test_fbx_discovers_fb12_numerically_not_lexically():
@@ -417,9 +454,7 @@ def test_validate_toas_refuses_fbx_slope_minimum_between_grid_nodes():
         }
     )
     with pytest.raises(TimingModelError, match="slope"):
-        m.components["BinaryDDR"]._validate_phase_slope_on_span(
-            toas, SimpleNamespace()
-        )
+        m.components["BinaryDDR"]._validate_phase_slope_on_span(toas, SimpleNamespace())
 
 
 def test_pb_plus_fb2_bridges_to_complete_fbx_chart():
@@ -465,6 +500,7 @@ def test_inherited_binary_names_are_classified():
     placeholders = {"EDOT"}
     refused = {
         "FB0",
+        "A1DOT2",
         "ORBWAVEC0",
         "ORBWAVES0",
         "ORBWAVE_OM",
@@ -712,27 +748,47 @@ def test_standalone_astrometric_columns_are_analytic(par_text, params):
     toas = make_fake_toas_uniform(54900, 55265, 24, model, obs="gbt")
     binary = model.components["BinaryDDR"]
     upstream = binary._upstream_delay(toas)
-    steps = {"RAJ": 1e-8, "DECJ": 1e-8, "ELONG": 1e-8, "ELAT": 1e-8}
+    binary.update_binary_object(toas, upstream)
+    obs_au = binary._obs_pos_au(toas)
+    _state, derivatives = binary._analytic_astrometry(obs_au)
+    # 1e-8 deg is below 80-bit ulp of O(1) AU primitives; 1e-6 keeps FD
+    # above that noise floor while the space-motion map stays linear.
+    steps = {"RAJ": 1e-6, "DECJ": 1e-6, "ELONG": 1e-6, "ELAT": 1e-6}
+    primitive_keys = ("mu_I", "mu_J", "d_I_au", "d_J_au")
     for name in params:
         par = getattr(model, name)
         step = np.longdouble(steps.get(name, 1e-3))
         analytic = binary.d_binary_delay_d_xxxx(toas, name).to_value(u.s / par.units)
+        kernel = np.asarray(
+            binary.binary_instance.d_delay_d_par(name), dtype=np.longdouble
+        )
+        np.testing.assert_allclose(
+            analytic,
+            kernel,
+            rtol=_ddr_rtol(1e-8),
+            atol=_ddr_atol(1e-14, analytic),
+            err_msg=name,
+        )
+        assert np.all(np.isfinite(analytic))
         original = np.longdouble(par.value)
         try:
             par.value = original + step
-            binary.update_binary_object(toas, upstream)
-            plus = binary.binary_instance.delay()
+            plus_state, _ = binary._analytic_astrometry(obs_au)
             par.value = original - step
-            binary.update_binary_object(toas, upstream)
-            minus = binary.binary_instance.delay()
+            minus_state, _ = binary._analytic_astrometry(obs_au)
         finally:
             par.value = original
-            binary.update_binary_object(toas, upstream)
-        numeric = (plus - minus) / (2 * step)
-        scale = max(np.max(np.abs(analytic)), np.max(np.abs(numeric)))
-        np.testing.assert_allclose(
-            analytic, numeric, rtol=2e-5, atol=1e-8 * scale + 1e-16, err_msg=name
-        )
+        for key in primitive_keys:
+            numeric = (plus_state[key] - minus_state[key]) / (2 * step)
+            dual = derivatives[name][key.lower()]
+            scale = max(np.max(np.abs(dual)), np.max(np.abs(numeric)), _LD("1e-30"))
+            np.testing.assert_allclose(
+                dual,
+                numeric,
+                rtol=_ddr_fd_rtol(2e-5),
+                atol=_ddr_peak_atol(scale),
+                err_msg=f"{name}:{key}",
+            )
 
 
 def test_zero_proper_motion_astrometric_columns_are_finite():
@@ -861,6 +917,22 @@ def test_wrapper_reuses_one_batched_tangent_evaluation(ddr_model_toas, monkeypat
     binary.d_binary_delay_d_xxxx(toas, "A1")
     binary.d_binary_delay_d_xxxx(toas, "EPS1")
     assert calls == 1
+
+
+def test_derivative_cache_key_ignores_longdouble_ulp(ddr_model_toas):
+    model, toas = ddr_model_toas
+    binary = model.components["BinaryDDR"]
+    names = list(
+        dict.fromkeys(binary._active_binary_independents() + binary._astrometry_in_B())
+    )
+    upstream = binary._upstream_delay(toas)
+    key = binary._derivative_cache_key(toas, upstream, names)
+    jitter = (
+        np.finfo(np.longdouble).eps
+        * np.maximum(np.abs(upstream.to_value(u.s)), 1.0)
+        * u.s
+    )
+    assert key == binary._derivative_cache_key(toas, upstream + jitter, names)
 
 
 @pytest.mark.parametrize("omdot", ["0", "0.01"])

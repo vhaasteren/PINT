@@ -45,19 +45,6 @@ binary_types = ["DD", "DDK", "DDS", "DDH", "BT", "ELL1", "ELL1H", "ELL1k", "DDR"
 __all__ = ["convert_binary"]
 
 
-def _ordinary_pb_frozen(model: pint.models.TimingModel) -> bool:
-    """Return the freeze flag for the independent orbital-period parameter.
-
-    Under canonical FBX, ``PB`` is a derived ``funcParameter`` and is always
-    frozen; the independent period information lives on ``FB0``.
-    """
-    if model.PB.quantity is not None and not isinstance(model.PB, funcParameter):
-        return model.PB.frozen
-    if hasattr(model, "FB0") and model.FB0.quantity is not None:
-        return model.FB0.frozen
-    return model.PB.frozen
-
-
 def _M2SINI_to_orthometric(model: pint.models.TimingModel) -> Tuple[u.Quantity]:
     """Convert from standard Shapiro delay (M2, SINI) to orthometric (H3, H4, STIGMA)
 
@@ -1016,9 +1003,7 @@ def _m2_sini_shapiro(model, *, cosi=None, report):
         cosi_value = _sini_to_cosi_prograde(sini_par.value)
         report["orientation"].append("assumed_prograde")
     else:
-        cosi_value = np.longdouble(
-            u.Quantity(cosi).to_value(u.dimensionless_unscaled)
-        )
+        cosi_value = np.longdouble(u.Quantity(cosi).to_value(u.dimensionless_unscaled))
         report["orientation"].append("declared_cosi")
     report["shapiro"].append("unchanged")
     return m2, cosi_value, False
@@ -1898,9 +1883,16 @@ def convert_binary(
     if not model.is_binary:
         raise AttributeError("Input model is not a binary")
 
-    binary_component_name = [
+    binary_component_names = [
         x for x in model.components.keys() if x.startswith("Binary")
-    ][0]
+    ]
+    if len(binary_component_names) > 1:
+        raise ValueError(
+            "convert_binary does not support hierarchical triple systems "
+            f"with multiple binary components ({binary_component_names}); "
+            "convert each orbit separately or remove BINARY2 first."
+        )
+    binary_component_name = binary_component_names[0]
     binary_component = model.components[binary_component_name]
     if binary_component.binary_model_name == output:
         log.debug(
@@ -2161,12 +2153,20 @@ def convert_binary(
             outmodel.OM.frozen = model.EPS1.frozen or model.EPS2.frozen
             outmodel.T0.quantity = T0
             outmodel.T0.uncertainty = T0_unc
-            outmodel.T0.frozen = (
-                model.EPS1.frozen
-                or model.EPS2.frozen
-                or model.TASC.frozen
-                or _ordinary_pb_frozen(model)
-            )
+            if model.PB.quantity is not None:
+                outmodel.T0.frozen = (
+                    model.EPS1.frozen
+                    or model.EPS2.frozen
+                    or model.TASC.frozen
+                    or model.PB.frozen
+                )
+            elif model.FB0.quantity is not None:
+                outmodel.T0.frozen = (
+                    model.EPS1.frozen
+                    or model.EPS2.frozen
+                    or model.TASC.frozen
+                    or model.FB0.frozen
+                )
             if EDOT is not None:
                 outmodel.EDOT.quantity = EDOT
             if EDOT_unc is not None:
@@ -2509,7 +2509,7 @@ def convert_binary(
             outmodel.TASC.frozen = (
                 model.ECC.frozen
                 or model.OM.frozen
-                or _ordinary_pb_frozen(model)
+                or model.PB.frozen
                 or model.T0.frozen
             )
             if EPS1DOT is not None and output != "ELL1k":
@@ -2625,10 +2625,7 @@ def convert_binary(
                     f"Setting KIN={outmodel.KIN} from SINI={model.SINI}: check that the sign is correct"
                 )
                 outmodel.KIN.frozen = model.SINI.frozen
-    # Match ModelBuilder ordering: normalize/setup before validate so that
-    # BinaryDD/BT defaults (e.g. PBDOT=0) are not invented before FBX
-    # canonicalization removes an unset PBDOT.
-    outmodel.setup()
     outmodel.validate()
+    outmodel.setup()
 
     return outmodel

@@ -482,11 +482,15 @@ def _analytic_space_motion(
 class BinaryDDR(PulsarBinary):
     """Damour-Deruelle-Regular binary model (``BINARY DDR``).
 
+    Regular: delay nonsingular at ``e=0``. Not a Laplace-Lagrange rename
+    of DD/ELL1.
+
     Coordinates are the anomalistic period ``PB``, projected axis ``A1`` at
-    ``TASC``, Laplace-Lagrange ``(EPS1, EPS2)`` at ``TASC``, companion mass
-    ``M2``, and DT92 ``COSI``. ``TGEO`` is the frozen astrometric origin of the
-    Cartesian projector (materialized once from ``TASC`` if omitted). ``KOM``
-    is DT92, east through north in the model's sky frame.
+    ``TASC`` (mean longitude zero; catalog description matches ELL1),
+    Laplace-Lagrange ``(EPS1, EPS2)`` at ``TASC``, companion mass ``M2``, and
+    DT92 ``COSI``. ``TGEO`` is the frozen astrometric origin of the Cartesian
+    projector (materialized once from ``TASC`` if omitted). ``KOM`` is DT92,
+    east through north in the model's sky frame.
 
     This is the exact Kepler + projector delay (van Haasteren in prep.), not
     the ELL1 Fourier series and not stock DDK annual-orbital parallax. Shapiro
@@ -522,6 +526,10 @@ class BinaryDDR(PulsarBinary):
         self.binary_model_name = "DDR"
         self.binary_model_class = DDRmodel
         self.warn_default_params = []
+        # DDR applies -B_t A_θ through d_ddr_time_argument_correction on
+        # upstream parameters. The kernel is not a PSR_BINARY, so the generic
+        # delay_deriv_wrt_prev_delay chain would both crash and double-count.
+        self.delay_deriv_wrt_prev_delay_funcs = []
         self._tgeo_materialized = False
         self._schema_finalized = False
         self._finalized_modes = None
@@ -530,7 +538,8 @@ class BinaryDDR(PulsarBinary):
         self.add_param(
             MJDParameter(
                 name="TASC",
-                description="Epoch of Laplace-Lagrange mean-longitude zero",
+                # Catalog text must match ELL1; DDR's TASC is λ=0 (class docstring).
+                description="Epoch of ascending node",
                 time_scale="tdb",
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
@@ -548,7 +557,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="EPS1",
                 units="",
-                description="Laplace-Lagrange h = e sin ω at TASC",
+                description="First Laplace-Lagrange parameter, ECC*sin(OM)",
                 long_double=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
@@ -557,7 +566,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="EPS2",
                 units="",
-                description="Laplace-Lagrange k = e cos ω at TASC",
+                description="Second Laplace-Lagrange parameter, ECC*cos(OM)",
                 long_double=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
@@ -574,7 +583,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="KOM",
                 units="deg",
-                description="Longitude of the ascending node (DT92)",
+                description="The longitude of the ascending node",
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
         )
@@ -590,7 +599,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="GAMMA",
                 units="second",
-                description="Staging Einstein parameter e g_γ (display after setup)",
+                description="Time dilation & gravitational redshift",
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
         )
@@ -598,7 +607,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="XPBDOT",
                 units=u.day / u.day,
-                description="Excess orbital-period derivative (kinematic DDR)",
+                description="Excess Orbital period derivative respect to time compared to GR",
                 unit_scale=True,
                 scale_factor=1e-12,
                 scale_threshold=1e-7,
@@ -691,7 +700,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="EDOT",
                 units="1/s",
-                description="Unsupported DDR eccentricity derivative (must be unset or 0)",
+                description="Eccentricity derivative respect to time",
                 frozen=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
@@ -700,7 +709,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="EPS1DOT",
                 units="1e-12/s",
-                description="Unsupported DDR EPS1 derivative (must be unset or 0)",
+                description="First derivative of first Laplace-Lagrange parameter",
                 frozen=True,
                 long_double=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
@@ -710,7 +719,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="EPS2DOT",
                 units="1e-12/s",
-                description="Unsupported DDR EPS2 derivative (must be unset or 0)",
+                description="Second derivative of first Laplace-Lagrange parameter",
                 frozen=True,
                 long_double=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
@@ -720,7 +729,7 @@ class BinaryDDR(PulsarBinary):
             floatParameter(
                 name="DR",
                 units="",
-                description="Unsupported DDR radial deformation (must be unset or 0)",
+                description="Relativistic deformation of the orbit",
                 frozen=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
@@ -730,7 +739,7 @@ class BinaryDDR(PulsarBinary):
                 name="DTH",
                 units="",
                 aliases=["DTHETA"],
-                description="Unsupported DDR angular deformation (must be unset or 0)",
+                description="Relativistic deformation of the orbit",
                 frozen=True,
                 tcb2tdb_scale_factor=u.Quantity(1),
             )
@@ -741,7 +750,7 @@ class BinaryDDR(PulsarBinary):
                 name="ECC",
                 units="",
                 aliases=["E"],
-                description="Eccentricity at TASC",
+                description="Eccentricity",
                 params=("EPS1", "EPS2"),
                 func=_eps_to_e,
             )
@@ -750,7 +759,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="OM",
                 units=u.deg,
-                description="ω_star = atan2(h, k) at TASC (not DD OM)",
+                description="Longitude of periastron",
                 long_double=True,
                 params=("EPS1", "EPS2"),
                 func=_eps_to_om,
@@ -760,7 +769,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="SINI",
                 units="",
-                description="Sine of inclination from COSI",
+                description="Sine of inclination angle",
                 params=("COSI",),
                 func=_cosi_to_sini,
             )
@@ -769,7 +778,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="KIN",
                 units="deg",
-                description="Inclination angle (DT92)",
+                description="Inclination angle",
                 params=("COSI",),
                 func=_cosi_to_kin,
             )
@@ -778,7 +787,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="KINIAU",
                 units="deg",
-                description="Inclination in the IAU convention",
+                description="Inclination angle in the IAU convention",
                 params=("KIN",),
                 func=_convert_kin,
             )
@@ -787,7 +796,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="KOMIAU",
                 units="deg",
-                description="Ascending node in the IAU convention",
+                description="The longitude of the ascending node in the IAU convention",
                 params=("KOM",),
                 func=_convert_kom,
             )
@@ -796,7 +805,8 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="STIGMA",
                 units="",
-                description="Folded FW10 ς = s/(1+|c|)",
+                description="Shapiro delay parameter STIGMA as in Freire and Wex 2010 Eq(12)",
+                aliases=["VARSIGMA", "STIG"],
                 params=("COSI",),
                 func=fw10_stigma,
             )
@@ -805,7 +815,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="H3",
                 units="s",
-                description="Folded FW10 H3",
+                description="Shapiro delay parameter H3 as in Freire and Wex 2010 Eq(20)",
                 params=("M2", "COSI"),
                 func=fw10_h3,
             )
@@ -814,7 +824,7 @@ class BinaryDDR(PulsarBinary):
             funcParameter(
                 name="H4",
                 units="s",
-                description="Folded FW10 H4",
+                description="Shapiro delay parameter H4 as in Freire and Wex 2010 Eq(21)",
                 params=("M2", "COSI"),
                 func=fw10_h4,
             )
@@ -1648,10 +1658,14 @@ class BinaryDDR(PulsarBinary):
         return self.binary_instance.delay() * u.s
 
     def _derivative_cache_key(self, toas, A, analytic_names):
+        # float64 tokens, not longdouble bytes / repr: 80-bit x87 (CI) can
+        # recompute the same upstream delay at a different ulp, which would
+        # otherwise miss the batch cache and re-run Dual for every column.
         values = tuple(
-            (name, repr(getattr(self._parent, name).value)) for name in analytic_names
+            (name, float(np.float64(getattr(self._parent, name).value)))
+            for name in analytic_names
         )
-        a_values = np.asarray(A.to_value(u.s), dtype=np.longdouble)
+        a_values = np.asarray(A.to_value(u.s), dtype=np.float64)
         tdb = np.asarray(toas.table["tdbld"], dtype=np.float64)
         return (tdb.tobytes(), values, a_values.shape, a_values.tobytes())
 
