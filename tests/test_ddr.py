@@ -1524,3 +1524,23 @@ def test_ddk_is_not_a_residual_identity():
     assert np.max(np.abs(sh_gbt - sh_ssb)) > 1e-12
     assert ddk.T0.value != pytest.approx(ddr.TASC.value)
     assert ddk.KOM.value == pytest.approx(ddr.KOM.value)
+
+
+def test_pb_resolves_the_tasc_epoch():
+    """``pb()`` must not ask a TASC-based model for ``T0``.
+
+    DDR carries ``TASC`` and no ``T0``, so the old
+    ``binary_model_name.startswith("ELL1")`` dispatch raised ``AttributeError``
+    here -- which took out anything that reached ``pb()``, including pyvela's
+    default TASC prior, before any delay was evaluated. A populated ``PBDOT``
+    is part of the case: without one, ``pb()`` returns early and never uses the
+    epoch at all.
+    """
+    m = get_model(StringIO(example_par()))
+    assert m.components["BinaryDDR"].binary_epoch_name == "TASC"
+    assert np.isclose(m.pb()[0].to_value(u.d), m.PB.quantity.to_value(u.d))
+
+    # `absorb_gw` makes PBDOT an ordinary parameter rather than the kinematic
+    # view, which is the shape a released DDR par has.
+    m2 = get_model(StringIO(example_par(DDRPBDOT="absorb_gw", PBDOT="1e-12")))
+    assert np.isclose(m2.pb()[0].to_value(u.d), m2.PB.quantity.to_value(u.d))

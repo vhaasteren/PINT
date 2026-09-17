@@ -114,6 +114,14 @@ class PulsarBinary(DelayComponent):
     def __init__(self):
         super().__init__()
         self.binary_model_name = None
+        #: Which parameter is this model's orbital epoch, declared per family
+        #: rather than inferred. A *derived* T0/TASC view can exist beside the
+        #: real one -- ELL1 has one written and commented out -- so neither a
+        #: `hasattr` test nor a `binary_model_name` prefix says what is meant:
+        #: the first cannot tell a derived view from the real parameter, and
+        #: the second has to be edited centrally for every new family, which
+        #: is how DDR first reached `pb()` asking for a T0 it does not have.
+        self.binary_epoch_name = "T0"
         self.barycentric_time = None
         self.binary_model_class = None
         self.add_param(
@@ -1009,10 +1017,7 @@ class PulsarBinary(DelayComponent):
         """
         PB_par = self._bp("PB")
         PBDOT_par = self._bp("PBDOT") if self._hasbp("PBDOT") else None
-        if self.binary_model_name.startswith("ELL1"):
-            t0 = self._bp("TASC").quantity
-        else:
-            t0 = self._bp("T0").quantity
+        t0 = self._bp(self.binary_epoch_name).quantity
         t = t0 if t is None else parse_time(t)
         # Derived PB (funcParameter) means the active phase is the FBX series;
         # do not treat it as an independent OrbitPB parameterization.
