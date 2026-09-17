@@ -524,6 +524,7 @@ class BinaryDDR(PulsarBinary):
     def __init__(self):
         super().__init__()
         self.binary_model_name = "DDR"
+        self.binary_epoch_name = "TASC"
         self.binary_model_class = DDRmodel
         self.warn_default_params = []
         # DDR applies -B_t A_θ through d_ddr_time_argument_correction on
