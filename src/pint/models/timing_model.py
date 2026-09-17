@@ -275,6 +275,10 @@ class TimingModel:
         self.name = name
         self.meta = {
             "read_time": f"{datetime.datetime.now().isoformat()}",
+            # DILATEFREQ as the input par declared it, recorded by validate()
+            # before it is coerced to N. TCB/TDB conversion needs the flag on
+            # the TCB side of the conversion; see pint.models.tcb_conversion.
+            "tcb_source_dilatefreq": False,
         }
         self.component_types = []
         self.top_level_params = []
@@ -446,6 +450,10 @@ class TimingModel:
         """
         if self.DILATEFREQ.value:
             warn("PINT does not support 'DILATEFREQ Y'")
+            # Remember it anyway: the DM-family TCB/TDB exponents depend on the
+            # DILATEFREQ of the TCB side of the conversion, and this is the only
+            # point at which the value the par file carried is still visible.
+            self.meta["tcb_source_dilatefreq"] = True
             self.DILATEFREQ.value = False
         if self.TIMEEPH.value not in [None, "FB90"]:
             warn("PINT only supports 'TIMEEPH FB90'")
@@ -467,8 +475,9 @@ class TimingModel:
                     $ tcb2tdb J1234+6789_tcb.par J1234+6789_tdb.par
                 
                 The converter processes every supported parameter and reports
-                unsupported active deterministic terms. Accepted conversions
-                satisfy PINT's tested no-refit accuracy contract. Note that
+                unsupported active deterministic terms. An accepted conversion
+                reproduces the source model's residuals to better than 1 ns
+                with nothing refitted, up to the overall phase gauge. Note that
                 PINT only supports writing TDB par files.
                 """
                 raise ValueError(error_message)

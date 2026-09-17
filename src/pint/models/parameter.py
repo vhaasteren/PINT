@@ -661,6 +661,11 @@ class floatParameter(Parameter):
         Explicit power of the TCB/TDB rate, overriding effective dimensionality.
     tcb2tdb_invariant: bool, optional
         Whether this parameter is explicitly unchanged by conversion.
+    tcb2tdb_freq_power: int, optional
+        Power ``alpha`` of the barycentric radio frequency in the delay this
+        parameter multiplies (``delay ~ x / freqSSB**alpha``). Only used when
+        the TCB side of a conversion declares ``DILATEFREQ Y``, where it adds
+        ``alpha`` to the exponent. The default, 0, leaves the exponent alone.
 
     Example
     -------
@@ -688,6 +693,7 @@ class floatParameter(Parameter):
         tcb2tdb_scale_factor=None,
         tcb2tdb_scale_exponent=None,
         tcb2tdb_invariant=False,
+        tcb2tdb_freq_power=0,
         **kwargs,
     ):
         self.long_double = long_double
@@ -722,6 +728,7 @@ class floatParameter(Parameter):
         self.tcb2tdb_scale_factor = tcb2tdb_scale_factor
         self.tcb2tdb_scale_exponent = tcb2tdb_scale_exponent
         self.tcb2tdb_invariant = tcb2tdb_invariant
+        self.tcb2tdb_freq_power = tcb2tdb_freq_power
 
     @property
     def long_double(self):
@@ -1513,6 +1520,9 @@ class prefixParameter:
         parameter, allowing order-aware prefixed families.
     tcb2tdb_invariant: bool, optional
         Whether the parameter is explicitly unchanged by TCB/TDB conversion.
+    tcb2tdb_freq_power: int, optional
+        Power of the barycentric radio frequency in the delay this parameter
+        multiplies; see :class:`floatParameter`.
     """
 
     def __init__(
@@ -1537,6 +1547,7 @@ class prefixParameter:
         tcb2tdb_scale_factor=None,
         tcb2tdb_scale_exponent=None,
         tcb2tdb_invariant=False,
+        tcb2tdb_freq_power=0,
         **kwargs,
     ):
         # Split prefixed name, if the name is not in the prefixed format, error
@@ -1609,6 +1620,7 @@ class prefixParameter:
             tcb2tdb_scale_factor=tcb2tdb_scale_factor_val,
             tcb2tdb_scale_exponent=tcb2tdb_scale_exponent,
             tcb2tdb_invariant=tcb2tdb_invariant,
+            tcb2tdb_freq_power=tcb2tdb_freq_power,
         )
         self.is_prefix = True
         self.time_scale = time_scale
@@ -1733,6 +1745,10 @@ class prefixParameter:
     def tcb2tdb_invariant(self):
         return getattr(self.param_comp, "tcb2tdb_invariant", False)
 
+    @property
+    def tcb2tdb_freq_power(self):
+        return getattr(self.param_comp, "tcb2tdb_freq_power", 0)
+
     def __repr__(self):
         return self.param_comp.__repr__()
 
@@ -1796,6 +1812,7 @@ class prefixParameter:
                 "tcb2tdb_scale_factor",
                 "tcb2tdb_scale_exponent",
                 "tcb2tdb_invariant",
+                "tcb2tdb_freq_power",
             ]
             if hasattr(self, key) and (key != "frozen" or inheritfrozen)
         }
@@ -1908,6 +1925,7 @@ class maskParameter(floatParameter):
         tcb2tdb_scale_factor=None,
         tcb2tdb_scale_exponent=None,
         tcb2tdb_invariant=False,
+        tcb2tdb_freq_power=0,
     ):
         self.is_mask = True
         # {key_name: (keyvalue parse function, keyvalue length)}
@@ -1962,6 +1980,7 @@ class maskParameter(floatParameter):
             tcb2tdb_scale_factor=tcb2tdb_scale_factor,
             tcb2tdb_scale_exponent=tcb2tdb_scale_exponent,
             tcb2tdb_invariant=tcb2tdb_invariant,
+            tcb2tdb_freq_power=tcb2tdb_freq_power,
         )
 
         # For the first mask parameter, add name to aliases for the reading
@@ -2163,6 +2182,7 @@ class maskParameter(floatParameter):
                 tcb2tdb_scale_factor=self.tcb2tdb_scale_factor,
                 tcb2tdb_scale_exponent=self.tcb2tdb_scale_exponent,
                 tcb2tdb_invariant=self.tcb2tdb_invariant,
+                tcb2tdb_freq_power=self.tcb2tdb_freq_power,
             )
             if copy_all
             else maskParameter(
@@ -2175,6 +2195,7 @@ class maskParameter(floatParameter):
                 tcb2tdb_scale_factor=self.tcb2tdb_scale_factor,
                 tcb2tdb_scale_exponent=self.tcb2tdb_scale_exponent,
                 tcb2tdb_invariant=self.tcb2tdb_invariant,
+                tcb2tdb_freq_power=self.tcb2tdb_freq_power,
             )
         )
 

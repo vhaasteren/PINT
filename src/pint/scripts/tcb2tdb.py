@@ -18,8 +18,12 @@ def main(argv=None):
         Coordinate epochs follow Astropy/ERFA's IAU 2006 TDB, and radio
         frequency remains undilated as in PINT's forward model. The command
         converts every supported term and warns about unsupported active
-        deterministic terms. A fully accepted conversion satisfies PINT's
-        tested no-refit accuracy contract.
+        deterministic terms. A fully accepted conversion reproduces the input
+        model's residuals to better than 1 ns with nothing refitted, up to the
+        overall phase gauge that TZRMJD or a reference JUMP fixes. DM-family
+        exponents follow the DILATEFREQ of the input par; a DILATEFREQ Y input
+        is converted but reported unaudited, because PINT evaluates undilated
+        frequencies.
         """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )

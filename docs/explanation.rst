@@ -161,8 +161,16 @@ parameter onto PINT's TDB forward model. Coordinate epochs use
 ``astropy.time.Time``/ERFA's IAU 2006 transformation, radio frequency remains
 undilated (``DILATEFREQ N``), and PX is explicitly unchanged because PINT
 implements no corresponding spatial-coordinate scaling. Unsupported active
-deterministic terms are left unchanged and reported. A report is accepted
-only when the model is covered by PINT's tested no-refit conversion surface.
+deterministic terms are left unchanged and reported.
+
+The TDB that PINT evaluates is the IAU 2006 Resolution B3 realization, via
+Astropy/ERFA. TEMPO2 currently labels a different realization ``UNITS TDB``:
+Irwin & Fukushima's *Teph*, which differs from IAU 2006 TDB by a constant
+64.5 ns plus a rate of 2.8e-18 (1.8 ns over a 20-year data span). Both pieces
+fall inside the phase offset and the ``F0`` column respectively, so they do not
+move a fitted solution, but they do mean that a par file labelled ``TDB`` is
+not bit-for-bit the same object in the two packages. A change to TEMPO2 is
+being discussed to align the timescales between PINT and TEMPO2.
 
 Note that the need for leap seconds is because the Earth's rotation is
 somewhat erratic - no, we're not about to be thrown off, but its

@@ -1,7 +1,11 @@
 """TCB/TDB conversion consistent with PINT's TDB forward model.
 
-Coordinate epochs use Astropy/ERFA's IAU 2006 realization. Radio frequencies
-remain undilated, matching PINT's supported ``DILATEFREQ N`` behavior.
+Coordinate epochs use Astropy/ERFA's IAU 2006 realization. PINT evaluates
+undilated radio frequencies (``DILATEFREQ N``), but the *exponents* of the
+DM-family coefficients are set by the ``DILATEFREQ`` on the TCB side of the
+conversion, because that is where the dilation factor is O(1e-8) rather than
+O(1e-10). See :func:`convert_tcb_tdb`.
+
 Unsupported active deterministic terms are reported but do not stop conversion.
 """
 
@@ -85,7 +89,16 @@ class TCBTDBConversionReport:
 
     @property
     def accepted(self) -> bool:
-        """Whether the conversion satisfies the tested no-refit contract."""
+        """Whether the conversion satisfies the tested no-refit contract.
+
+        The contract is literal. With the TOAs, the clock chain and the
+        solar-system ephemeris held fixed, an accepted conversion reproduces
+        the source model's residuals to better than 1 ns with no parameter
+        refitted. The single exception is the overall phase gauge, the
+        constant fixed by ``TZRMJD``, a subtracted mean residual or a
+        reference ``JUMP``; each timing package chooses that constant by its
+        own convention, so the bound is on the shape of the residuals.
+        """
         return not self.unsupported and not self.unaudited_components
 
 
@@ -167,18 +180,26 @@ def transform_mjd_parameter(model: TimingModel, param: str, backwards: bool) -> 
             par.uncertainty_value *= TCB_TDB_K if backwards else TCB_TDB_F
 
 
-def _scale_exponent(param) -> int:
-    """Return the conversion exponent, honoring component-owned overrides."""
+def _scale_exponent(param, dilated: bool = False) -> int:
+    """Return the conversion exponent, honoring component-owned overrides.
+
+    ``dilated`` is the ``DILATEFREQ`` of the TCB side of the conversion. The
+    declared exponents are the undilated ones; a dilated TCB side adds the
+    parameter's ``tcb2tdb_freq_power`` (``alpha`` in
+    ``delay ~ x / freqSSB**alpha``), which is 0 for everything but the DM
+    family. For constant DM that turns ``K**-1`` into ``K**+1``.
+    """
     override = getattr(param, "tcb2tdb_scale_exponent", None)
     if callable(override):
         override = override(param)
-    if override is not None:
-        return int(override)
-    return -param.effective_dimensionality
+    n = int(override) if override is not None else -param.effective_dimensionality
+    if dilated:
+        n += int(getattr(param, "tcb2tdb_freq_power", 0) or 0)
+    return n
 
 
 def _parameter_conversion_plan(
-    model: TimingModel,
+    model: TimingModel, dilated: bool = False
 ) -> tuple[set[str], set[str], set[str]]:
     """Classify set parameters without changing the model."""
     convertible: set[str] = set()
@@ -198,7 +219,7 @@ def _parameter_conversion_plan(
             isinstance(param, prefixParameter)
             and isinstance(param.param_comp, (floatParameter, AngleParameter))
         ):
-            if _scale_exponent(param) == 0:
+            if _scale_exponent(param, dilated) == 0:
                 invariant.add(name)
             else:
                 convertible.add(name)
@@ -219,24 +240,43 @@ def _parameter_conversion_plan(
 
 
 def _active_unsupported_components(
-    model: TimingModel, converted: set[str], invariant: set[str]
+    model: TimingModel,
+    converted: set[str],
+    invariant: set[str],
+    dilated: bool = False,
 ) -> tuple[set[str], set[str]]:
-    """Find unhandled parameters from PINT's actual delay/phase graph."""
+    """Find unhandled parameters from PINT's actual delay/phase graph.
+
+    A dilated TCB side also un-certifies every component holding a
+    frequency-dependent coefficient: the exponents are right, but PINT cannot
+    close the loop by evaluating a dilated model, and its undilated evaluation
+    of the converted par differs from a dilated one by ~1e-9 of the dispersion
+    delay. That is a model difference no parameter value can absorb.
+    """
     unsupported: set[str] = set()
     components: set[str] = set()
     forward_components = model.DelayComponent_list + model.PhaseComponent_list
 
     for component in forward_components:
         component_unsupported = set()
+        dilation_sensitive = False
         for name in component.params:
             par = model[name]
-            if par.quantity is None or name in converted or name in invariant:
+            if par.quantity is None:
+                continue
+            if int(getattr(par, "tcb2tdb_freq_power", 0) or 0) != 0:
+                dilation_sensitive = True
+            if name in converted or name in invariant:
                 continue
             if hasattr(par, "convert_tcb2tdb"):
                 component_unsupported.add(name)
         if component_unsupported:
             unsupported.update(component_unsupported)
-        if component_unsupported or not component.tcb2tdb_certified:
+        if (
+            component_unsupported
+            or not component.tcb2tdb_certified
+            or (dilated and dilation_sensitive)
+        ):
             components.add(component.__class__.__name__)
 
     return unsupported, components
@@ -247,9 +287,38 @@ def convert_tcb_tdb(
 ) -> TCBTDBConversionReport:
     """Convert every supported parameter between TCB and TDB.
 
-    The conversion follows PINT's IAU 2006 TDB, undilated-radio-frequency
-    forward model. Unsupported active deterministic terms are left unchanged
-    and reported; they never prevent supported operations from completing.
+    Coordinate epochs follow PINT's IAU 2006 TDB. Unsupported active
+    deterministic terms are left unchanged and reported; they never prevent
+    supported operations from completing.
+
+    The DM-family exponents depend on ``DILATEFREQ``, and the flag that
+    matters is the one on the **TCB** side of the conversion. Requiring the
+    physical delay to be the same object in both unit systems gives, for
+    ``delay ~ x / freqSSB**alpha``::
+
+        x_tdb = F x_tcb (E_tcb / E_tdb)**alpha
+
+    where ``E`` is the Einstein-rate divisor a dilating engine applies to the
+    barycentric frequency. On the TCB side ``E`` carries the full ``K``
+    (~1.55e-8); on the TDB side it differs from 1 by only ~5e-10. So a dilated
+    TCB par needs ``x_tdb = K x_tcb`` for constant DM, not ``F x_tcb``, and the
+    TDB file's own flag is irrelevant at this level. Getting this wrong costs
+    ``K**2 - 1 = 3.1e-8`` of the dispersion delay: ~3 ns at 1.4 GHz and ~40 ns
+    at 400 MHz for DM = 50, and it is chromatic, so no phase gauge absorbs it.
+
+    TEMPO2 defaults to ``DILATEFREQ Y`` and writes it into the TCB par files it
+    produces, so this is the common case rather than an exotic one. PINT
+    records the flag in ``TimingModel.meta["tcb_source_dilatefreq"]`` when
+    :meth:`~pint.models.timing_model.TimingModel.validate` coerces it to N.
+    Going backwards, the TCB side is PINT's own output, which is always
+    undilated.
+
+    A dilated source leaves the frequency-dependent components unaudited: the
+    exponents are right, but PINT cannot certify them by closure because it
+    cannot evaluate a dilated model, and its undilated evaluation of the
+    converted par still differs from a dilated one by ``E**2 - 1 ~ 1e-9`` of
+    the dispersion delay (~1 ns at 400 MHz for DM = 50), which is an annual
+    signal no parameter value can absorb.
 
     Parameters
     ----------
@@ -267,20 +336,28 @@ def convert_tcb_tdb(
 
     target_units = "TCB" if backwards else "TDB"
     source_units = "TDB" if backwards else "TCB"
-    convertible, invariant, unsupported = _parameter_conversion_plan(model)
+
+    # The DILATEFREQ of the TCB side: the input par when converting TCB->TDB,
+    # PINT's own (always undilated) output when going backwards.
+    dilated = bool(model.meta.get("tcb_source_dilatefreq", False)) and not backwards
+    convention = (
+        "iau2006-dilated-frequency" if dilated else "iau2006-undilated-frequency"
+    )
+
+    convertible, invariant, unsupported = _parameter_conversion_plan(model, dilated)
 
     if model["UNITS"].value == target_units or (
         model["UNITS"].value is None and not backwards
     ):
         log.warning("The input par file is already in the target units. Doing nothing.")
         graph_unsupported, unaudited_components = _active_unsupported_components(
-            model, convertible, invariant
+            model, convertible, invariant, dilated
         )
         unsupported.update(graph_unsupported)
         report = TCBTDBConversionReport(
             source_units=target_units,
             target_units=target_units,
-            convention="iau2006-undilated-frequency",
+            convention=convention,
             converted=(),
             invariant=tuple(sorted(invariant)),
             unsupported=tuple(sorted(unsupported)),
@@ -295,12 +372,12 @@ def convert_tcb_tdb(
             isinstance(param, prefixParameter)
             and isinstance(param.param_comp, (floatParameter, AngleParameter))
         ):
-            scale_parameter(model, name, _scale_exponent(param), backwards)
+            scale_parameter(model, name, _scale_exponent(param, dilated), backwards)
         else:
             transform_mjd_parameter(model, name, backwards)
 
     graph_unsupported, unaudited_components = _active_unsupported_components(
-        model, convertible, invariant
+        model, convertible, invariant, dilated
     )
     unsupported.update(graph_unsupported)
 
@@ -311,13 +388,22 @@ def convert_tcb_tdb(
     report = TCBTDBConversionReport(
         source_units=source_units,
         target_units=target_units,
-        convention="iau2006-undilated-frequency",
+        convention=convention,
         converted=tuple(sorted(convertible)),
         invariant=tuple(sorted(invariant)),
         unsupported=tuple(sorted(unsupported)),
         unaudited_components=tuple(sorted(unaudited_components)),
     )
     model.tcb_tdb_conversion_report = report
+
+    if dilated:
+        log.warning(
+            "The input par declares DILATEFREQ Y. DM-family coefficients were "
+            "converted with the dilated-frequency exponents. PINT evaluates "
+            "them undilated, which differs from a dilated evaluation by ~1e-9 "
+            "of the dispersion delay (~1 ns at 400 MHz for DM=50); the "
+            "affected components are reported unaudited."
+        )
 
     if not report.accepted:
         log.warning(

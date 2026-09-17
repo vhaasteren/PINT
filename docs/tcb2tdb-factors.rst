@@ -88,6 +88,35 @@ FD and FDJUMP coefficients are time-valued amplitudes evaluated at PINT's
 fixed radio frequency, so every coefficient scales by ``F``. No logarithmic
 coefficient mixing is needed.
 
+The DM family is the one place where ``DILATEFREQ`` changes the answer, and
+the flag that matters is the one on the **TCB** side of the conversion. A
+dilating engine divides the barycentric frequency by the Einstein rate; on the
+TCB side that divisor carries the full ``K`` (1.55e-8), while on the TDB side
+it departs from 1 by only ~5e-10. Requiring the physical delay to be the same
+object in both unit systems therefore gives ``K**(q+1)`` for a dilated TCB
+source and ``K**(q-1)`` for an undilated one, where ``q`` is the Taylor order.
+Choosing the wrong branch costs ``K**2 - 1 = 3.1e-8`` of the dispersion delay,
+which is ~3 ns at 1.4 GHz and ~40 ns at 400 MHz for DM = 50; being chromatic,
+it is not absorbed by the phase gauge. TEMPO2 defaults to ``DILATEFREQ Y`` and
+writes it into the TCB par files it produces, so this is the common case.
+
+PINT evaluates undilated frequencies regardless, and converts a dilated source
+with the dilated exponents. It reports the frequency-dependent components as
+unaudited in that case: the exponents are right, but PINT cannot certify them
+by closure, because it cannot evaluate a dilated model, and its undilated
+evaluation of the converted par still differs from a dilated one by
+``E**2 - 1 ~ 1e-9`` of the dispersion delay (~1 ns at 400 MHz for DM = 50).
+That residue is an annual signal and no parameter value can absorb it.
+
 Unsupported active deterministic terms are left unchanged and reported. They
 do not prevent supported parameters from being converted. A conversion is
 covered by the no-refit accuracy contract only when its report is accepted.
+
+The contract is literal, and the noise parameters above are its only
+carve-out. With the TOAs, the clock chain and the solar-system ephemeris held
+fixed, an accepted conversion reproduces the source model's residuals to
+better than 1 ns and no deterministic parameter is refitted. The one degree of
+freedom left open is the overall phase gauge, the constant that ``TZRMJD``, a
+subtracted mean residual or a reference ``JUMP`` fixes; timing packages pick
+that constant by differing conventions, so the bound is stated on the shape of
+the residuals rather than on their absolute offset.

@@ -26,7 +26,12 @@ from pint.utils import split_prefixed_name, taylor_horner, taylor_horner_deriv
 
 
 def _dm_derivative_tcb2tdb_scale_exponent(param):
-    """Scale DM derivatives as K**(order-1) at PINT's fixed radio frequency."""
+    """Scale DM derivatives as K**(order-1) at PINT's fixed radio frequency.
+
+    This is the undilated (``DILATEFREQ N``) exponent. When the TCB side of a
+    conversion declares ``DILATEFREQ Y`` the converter adds this parameter's
+    ``tcb2tdb_freq_power`` (2 for the DM family), giving K**(order+1).
+    """
     return param.index - 1
 
 
@@ -158,6 +163,7 @@ class DispersionDM(Dispersion):
                 long_double=True,
                 tcb2tdb_scale_factor=DMconst,
                 tcb2tdb_scale_exponent=-1,
+                tcb2tdb_freq_power=2,
             )
         )
         self.add_param(
@@ -171,6 +177,7 @@ class DispersionDM(Dispersion):
                 long_double=True,
                 tcb2tdb_scale_factor=DMconst,
                 tcb2tdb_scale_exponent=_dm_derivative_tcb2tdb_scale_exponent,
+                tcb2tdb_freq_power=2,
             )
         )
         self.add_param(
@@ -412,6 +419,7 @@ class DispersionDMX(Dispersion):
                 frozen=frozen,
                 tcb2tdb_scale_factor=DMconst,
                 tcb2tdb_scale_exponent=-1,
+                tcb2tdb_freq_power=2,
             )
         )
         self.add_param(
@@ -534,6 +542,7 @@ class DispersionDMX(Dispersion):
                     frozen=frozen,
                     tcb2tdb_scale_factor=DMconst,
                     tcb2tdb_scale_exponent=-1,
+                    tcb2tdb_freq_power=2,
                 )
             )
             self.add_param(

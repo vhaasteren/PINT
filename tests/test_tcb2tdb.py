@@ -1,6 +1,7 @@
 """Tests for `pint.models.tcb_conversion` and the `tcb2tdb` script."""
 
 import os
+import re
 from copy import deepcopy
 from io import StringIO
 
@@ -197,6 +198,123 @@ def test_fixed_frequency_dm_and_fd_scaling():
     dm_delay_tdb = dm_component.dispersion_time_delay(dm_tdb, frequencies)
     dm_error = dm_delay_tdb - dm_delay_tcb * TCB_TDB_F
     assert np.max(np.abs(dm_error.to_value(u.ns))) < 0.01
+
+
+# A TCB par exercising every DM-family exponent: constant, two Taylor orders,
+# and one DMX range.
+_dmfamily_par = simplepar.replace(
+    "DM              223.9  1",
+    "DM              223.9  1\n"
+    "DM1 1e-3\n"
+    "DM2 2e-5\n"
+    "DMEPOCH 53750\n"
+    "DMX_0001 1e-2 1\n"
+    "DMXR1_0001 53700\n"
+    "DMXR2_0001 53800",
+)
+
+
+def _convert_with_dilatefreq(dilatefreq):
+    """Read ``_dmfamily_par`` with the given DILATEFREQ and convert it."""
+    par = re.sub(r"DILATEFREQ\s+\S+", f"DILATEFREQ {dilatefreq}", _dmfamily_par)
+    m = ModelBuilder()(StringIO(par), allow_tcb="raw")
+    before = {
+        name: np.longdouble(m[name].value)
+        for name in ("DM", "DM1", "DM2", "DMX_0001", "F0", "A1", "FD1")
+    }
+    report = convert_tcb_tdb(m)
+    after = {name: np.longdouble(m[name].value) for name in before}
+    return before, after, report
+
+
+def test_undilated_source_uses_fixed_frequency_dm_exponents():
+    # DILATEFREQ N on the TCB side: freqSSB is the same number in both unit
+    # systems, so the DM family carries only the time dimension, K**(q-1).
+    before, after, report = _convert_with_dilatefreq("N")
+    assert report.convention == "iau2006-undilated-frequency"
+    assert np.isclose(after["DM"] / before["DM"], TCB_TDB_F)
+    assert np.isclose(after["DM1"] / before["DM1"], 1)
+    assert np.isclose(after["DM2"] / before["DM2"], TCB_TDB_K)
+    assert np.isclose(after["DMX_0001"] / before["DMX_0001"], TCB_TDB_F)
+
+
+def test_dilated_source_uses_dilated_dm_exponents():
+    # DILATEFREQ Y on the TCB side: freqSSB_tcb = freqSSB_tdb / K, so each
+    # inverse-square frequency contributes K**2 on top, giving K**(q+1).
+    before, after, report = _convert_with_dilatefreq("Y")
+    assert report.convention == "iau2006-dilated-frequency"
+    assert np.isclose(after["DM"] / before["DM"], TCB_TDB_K)
+    assert np.isclose(after["DM1"] / before["DM1"], TCB_TDB_K**2)
+    assert np.isclose(after["DM2"] / before["DM2"], TCB_TDB_K**3)
+    assert np.isclose(after["DMX_0001"] / before["DMX_0001"], TCB_TDB_K)
+
+
+def test_dilatefreq_moves_dm_by_k_squared():
+    # The two conventions differ by K**2 - 1 = 3.1e-8 of the dispersion delay.
+    # That is ~40 ns at 400 MHz for DM = 50, and it is chromatic, so unlike a
+    # timescale offset no phase gauge absorbs it.
+    _, after_n, _ = _convert_with_dilatefreq("N")
+    _, after_y, _ = _convert_with_dilatefreq("Y")
+    assert np.isclose(after_y["DM"] / after_n["DM"], TCB_TDB_K**2, rtol=1e-12)
+
+    freq = 400 * u.MHz
+    dm_error = (after_y["DM"] - after_n["DM"]) * dmu
+    delay_error = (DMconst * dm_error / freq**2).to(u.ns)
+    expected = (
+        DMconst
+        * (np.longdouble(after_n["DM"]) * float(TCB_TDB_K**2 - 1))
+        * dmu
+        / freq**2
+    ).to(u.ns)
+    assert np.isclose(delay_error.value, expected.value, rtol=1e-6)
+    assert delay_error > 100 * u.ns  # DM is 223.9 here, so it is large
+
+
+def test_dilatefreq_does_not_touch_non_dispersive_parameters():
+    # Only the DM family declares a nonzero tcb2tdb_freq_power. FD and FDJUMP
+    # are log-frequency terms whose dilation residue is ~1e-13 s, so they keep
+    # the undilated exponent in both conventions.
+    _, after_n, _ = _convert_with_dilatefreq("N")
+    _, after_y, _ = _convert_with_dilatefreq("Y")
+    for name in ("F0", "A1", "FD1"):
+        assert after_y[name] == after_n[name]
+
+
+def test_dilated_source_leaves_dispersion_components_unaudited():
+    # The exponents are right, but PINT cannot certify them by closure: it
+    # cannot evaluate a dilated model, and its undilated evaluation of the
+    # converted par still differs from a dilated one by ~1e-9 of the
+    # dispersion delay. Convert, then say so.
+    _, _, report_n = _convert_with_dilatefreq("N")
+    _, _, report_y = _convert_with_dilatefreq("Y")
+
+    assert "DispersionDM" not in report_n.unaudited_components
+    assert "DispersionDMX" not in report_n.unaudited_components
+
+    assert "DispersionDM" in report_y.unaudited_components
+    assert "DispersionDMX" in report_y.unaudited_components
+    assert not report_y.accepted
+    # Permissive: the DM family is still converted, not refused.
+    assert "DM" in report_y.converted
+    assert "DMX_0001" in report_y.converted
+    assert "DM" not in report_y.unsupported
+
+
+def test_backwards_conversion_ignores_the_source_dilatefreq():
+    # Going TDB -> TCB the TCB side is PINT's own output, which is always
+    # undilated, so DM must scale by K and not by F no matter what the input
+    # file declared.
+    par = re.sub(r"DILATEFREQ\s+\S+", "DILATEFREQ Y", simplepar).replace(
+        "UNITS               TCB", "UNITS               TDB"
+    )
+    m = ModelBuilder()(StringIO(par), allow_tcb="raw")
+    assert m.meta["tcb_source_dilatefreq"] is True
+
+    dm0 = np.longdouble(m.DM.value)
+    report = convert_tcb_tdb(m, backwards=True)
+
+    assert report.convention == "iau2006-undilated-frequency"
+    assert np.isclose(np.longdouble(m.DM.value) / dm0, TCB_TDB_K)
 
 
 def test_k_power_minus_one_is_the_small_increment():
